@@ -1,0 +1,194 @@
+# SeatLayer Python SDK
+
+Official Python server SDK for the [SeatLayer](https://seatlayer.io) reserved-seating API.
+
+> **Server-side only.** This package authenticates with your secret key. Never run it anywhere a
+> ticket buyer can reach — browser surfaces get short-lived, origin-bound tokens that you mint here.
+
+```bash
+pip install seatlayer
+```
+
+Requires Python 3.10+. No runtime dependencies.
+
+## Quick start
+
+```python
+import os
+from seatlayer import SeatLayer
+
+seatlayer = SeatLayer(os.environ["SEATLAYER_SECRET_KEY"])
+
+# 1. Provision a venue for a new organiser from one of your templates.
+chart = seatlayer.charts.copy("c_template_arena")["meta"]
+seatlayer.charts.publish(chart["id"])
+
+# 2. Create an event on it.
+event = seatlayer.events.create(chart_id=chart["id"], name="Spring Gala")["meta"]
+
+# 3. Sell four seats over the phone.
+held = seatlayer.inventory.hold_best_available(event["key"], qty=4)
+# … take payment against held["items"], which carry authoritative prices …
+seatlayer.inventory.book(event["key"], hold_id=held["holdId"], booking_ref="order-8842")
+```
+
+## Test vs live
+
+Keys carry their own mode. `sk_test_…` keys can only touch test-mode events and `sk_live_…` only
+live ones; crossing them returns `403 mode_mismatch`, surfaced as `SeatLayerAuthError` with
+`is_mode_mismatch`.
+
+```python
+seatlayer = SeatLayer(os.environ["SEATLAYER_SECRET_KEY"])
+if os.environ.get("ENV") == "production" and seatlayer.mode != "live":
+    raise RuntimeError("Refusing to boot production against test-mode seating data.")
+```
+
+## The two selling flows
+
+**Buyer picks seats in the browser.** Your frontend holds them; your backend confirms the price and
+books. Never price from what the browser sent you — `retrieve_hold` is authoritative.
+
+```python
+hold = seatlayer.inventory.retrieve_hold(event_key, hold_id)
+total = sum(item["unitPrice"] for item in hold["items"])
+# … charge `total` in hold["currency"] …
+seatlayer.inventory.book(event_key, hold_id=hold_id, booking_ref=charge.id)
+```
+
+**Your backend picks the seats.** Phone orders, box office, comps.
+
+```python
+# Payment already taken — book outright, so nothing is stranded if a second call fails.
+seatlayer.inventory.book_best_available(event_key, qty=2, booking_ref="phone-1183")
+
+# Or name the seats yourself.
+seatlayer.inventory.box_office_book(event_key, labels=["A-1", "A-2"], booking_ref="comp-14")
+```
+
+## Embedding the control room
+
+Your secret key never reaches a browser. Mint a scoped token instead.
+
+```python
+session = seatlayer.sessions.create_manage_session(
+    event_key,
+    allowed_origin="https://box-office.yourplatform.com",
+    capabilities=["event:view", "event:block"],
+    expires_in_seconds=3600,
+)
+```
+
+`capabilities` is **required** by this SDK even though the API defaults it. That default grants all
+four including `event:cancel`, which reverses paid bookings — not something that should arrive by
+forgetting an argument. Grant the smallest set the page needs.
+
+The same pattern embeds the Designer in your own UI:
+
+```python
+chart = seatlayer.charts.create(name="Riverside Theatre")["meta"]
+designer = seatlayer.sessions.create_designer_session(
+    workspace_id=workspace_id,
+    chart_id=chart["id"],
+    allowed_origin="https://app.yourplatform.com",
+    authority="edit",
+)
+```
+
+## Webhooks
+
+Verify every delivery against the **raw** body. Re-serialising it changes the bytes and
+verification will fail.
+
+```python
+from flask import request
+from seatlayer import verify_webhook, WebhookVerificationError
+
+@app.post("/webhooks/seatlayer")
+def seatlayer_webhook():
+    try:
+        event = verify_webhook(
+            request.get_data(),                                 # raw bytes, not request.json
+            request.headers.get("X-SeatLayer-Signature"),
+            os.environ["SEATLAYER_WEBHOOK_SECRET"],
+        )
+    except WebhookVerificationError:
+        return "", 400
+
+    # Deliveries are signed over the body only — there is no timestamp header and
+    # no tolerance window, so a captured delivery stays valid. Deduplicate on
+    # occurrenceId; this is your replay protection.
+    if already_processed(event["occurrenceId"]):
+        return "", 200
+
+    handle(event)
+    return "", 200
+```
+
+## Errors
+
+```python
+from seatlayer import SeatLayerAuthError, SeatLayerConflictError, SeatLayerRateLimitError
+
+try:
+    seatlayer.inventory.hold_best_available(event_key, qty=6)
+except SeatLayerConflictError as error:
+    if error.is_sold_out:
+        return show_alternative_dates()      # a business outcome, not a bug
+    raise
+except SeatLayerRateLimitError as error:
+    return retry_after(error.retry_after_seconds)
+except SeatLayerAuthError as error:
+    if error.is_mode_mismatch:
+        raise RuntimeError("Test key pointed at a live event (or the reverse.)") from error
+    raise
+```
+
+Every error carries `status`, `code`, `body`, and `request_id` — quote the request id in support
+requests.
+
+## Reliability
+
+**Retries.** 429, 408 and 5xx are retried with exponential backoff and full jitter; `Retry-After`
+wins when the server sends it. 4xx is never retried — it will not start succeeding.
+
+**Idempotency.** Every mutating request carries an `Idempotency-Key`, generated if you do not supply
+one, and **reused across retries** so a retried booking cannot become two bookings. Pass your own
+order id for end-to-end deduplication:
+
+```python
+seatlayer.inventory.book(event_key, hold_id=hold_id, idempotency_key=f"order-{order_id}")
+```
+
+```python
+SeatLayer(
+    os.environ["SEATLAYER_SECRET_KEY"],
+    max_retries=3,   # total attempts
+    timeout=30.0,    # seconds, per attempt
+)
+```
+
+## Escape hatch
+
+For surface this SDK does not wrap yet — same auth, retries, idempotency and error mapping:
+
+```python
+seatlayer.request("POST", "/v1/events/ev_1/some-new-route", body={...})
+```
+
+## API surface
+
+| Resource | Methods |
+| --- | --- |
+| `charts` | `list` `create` `retrieve` `update` `delete` `copy` `archive` `unarchive` `publish` |
+| `events` | `list` `create` `retrieve` `update` `delete` `update_chart` `close` `reopen` `archive` `retrieve_hold_ttl` `update_hold_ttl` `retrieve_report` `retrieve_log` |
+| `inventory` | `hold` `hold_best_available` `book_best_available` `retrieve_hold` `release` `book` `box_office_book` `unbook` `block` `unblock` `unblock_all` `retrieve_availability` `update_availability` |
+| `sessions` | `create_manage_session` `revoke_manage_session` `create_designer_session` `revoke_designer_session` |
+| `webhooks` | `list` `create` `update` `delete` `list_deliveries` |
+| `workspaces` | `list` `create` `retrieve` `update` |
+
+Full reference: [docs.seatlayer.io/server-api](https://docs.seatlayer.io/server-api/)
+
+## License
+
+MIT

@@ -1,0 +1,47 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "seatlayer"
+version = "0.1.0"
+description = "Official Python server SDK for the SeatLayer reserved-seating API."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+keywords = ["seatlayer", "reserved-seating", "seating-chart", "ticketing", "box-office"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Topic :: Software Development :: Libraries",
+]
+# No runtime dependencies on purpose: a server SDK that drags in a dependency
+# tree becomes a supply-chain surface for every customer who installs it.
+dependencies = []
+
+[project.urls]
+Homepage = "https://seatlayer.io"
+Documentation = "https://docs.seatlayer.io/server-api/"
+Source = "https://github.com/seatlayer/seatlayer-python"
+Issues = "https://github.com/seatlayer/seatlayer-python/issues"
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "mypy>=1.11", "ruff>=0.6"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/seatlayer"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+files = ["src/seatlayer"]

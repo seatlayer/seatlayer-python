@@ -197,3 +197,53 @@ class TestCharts:
         sdk, calls = make_client([{"status": 200, "body": {"meta": {}}}])
         sdk.charts.update("c_1", doc={"version": 1}, expected_updated_at=1234)
         assert json.loads(calls[0].data)["expectedUpdatedAt"] == 1234
+
+class TestPagination:
+    def test_list_all_walks_pages_and_stops(self) -> None:
+        sdk, calls = make_client([
+            {"status": 200, "body": {"charts": [{"id": "c_1"}, {"id": "c_2"}], "nextCursor": "cur_1"}},
+            {"status": 200, "body": {"charts": [{"id": "c_3"}]}},
+        ])
+
+        seen = [chart["id"] for chart in sdk.charts.list_all(limit=2)]
+
+        assert seen == ["c_1", "c_2", "c_3"]
+        assert len(calls) == 2
+        # Absent nextCursor terminates — a caller looping cannot spin forever.
+        assert "cursor=cur_1" in calls[1].full_url
+
+    def test_list_all_events_skips_per_event_counts(self) -> None:
+        # Counts cost a server round-trip PER EVENT, which is exactly the cost
+        # pagination was added to avoid.
+        sdk, calls = make_client([{"status": 200, "body": {"events": []}}])
+        list(sdk.events.list_all())
+        assert "counts=0" in calls[0].full_url
+
+    def test_single_page_keeps_counts(self) -> None:
+        sdk, calls = make_client([{"status": 200, "body": {"events": []}}])
+        sdk.events.list(limit=10)
+        assert "counts=0" not in calls[0].full_url
+
+    def test_passes_limit_and_cursor(self) -> None:
+        sdk, calls = make_client([{"status": 200, "body": {"charts": []}}])
+        sdk.charts.list(limit=25, cursor="abc")
+        assert "limit=25" in calls[0].full_url
+        assert "cursor=abc" in calls[0].full_url
+
+
+class TestExtendHold:
+    def test_posts_hold_id_to_extend_route(self) -> None:
+        sdk, calls = make_client([{"status": 200, "body": {"ok": True, "expiresAt": 123}}])
+        sdk.inventory.extend_hold("ev_1", "h_9", ttl_ms=600_000)
+
+        assert calls[0].full_url == "https://api.seatlayer.io/v1/events/ev_1/extend"
+        assert json.loads(calls[0].data) == {"holdId": "h_9", "ttlMs": 600_000}
+
+    def test_spent_hold_is_a_conflict(self) -> None:
+        sdk, _ = make_client([
+            {"status": 409, "body": {"error": "cannot_extend", "reason": "expired"}}
+        ])
+        with pytest.raises(SeatLayerConflictError) as caught:
+            sdk.inventory.extend_hold("ev_1", "h_9")
+        assert caught.value.code == "cannot_extend"
+

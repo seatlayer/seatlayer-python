@@ -4,6 +4,9 @@
 
 First release of the SeatLayer Python server SDK.
 
+- `inventory.extend_hold` — keep a server-side hold alive past the checkout window.
+- `charts.list` / `events.list` take `limit` and `cursor`; `list_all()` pages transparently as a
+  generator and skips the per-event availability fanout.
 - `SeatLayer` client with secret-key auth, per-attempt timeouts, and a typed escape hatch.
 - Resources: `charts`, `events`, `inventory`, `sessions`, `webhooks`, `workspaces`.
 - Automatic `Idempotency-Key` on every mutation, reused across retries so a retried

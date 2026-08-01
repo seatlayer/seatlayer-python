@@ -6,7 +6,7 @@ call is named the same thing in every SeatLayer server SDK.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from typing import Any
 
 from .http import HttpClient, quote
@@ -28,11 +28,47 @@ class Charts:
         workspace_id: str | None = None,
         external_ref: str | None = None,
         archived: bool = False,
+        limit: int | None = None,
+        cursor: str | None = None,
     ) -> Any:
-        query: dict[str, Any] = {"workspaceId": workspace_id, "externalRef": external_ref}
+        """One page of charts.
+
+        Pass ``cursor`` from the previous page's ``nextCursor``; its absence means
+        the list is exhausted.
+        """
+        query: dict[str, Any] = {
+            "workspaceId": workspace_id,
+            "externalRef": external_ref,
+            "limit": limit,
+            "cursor": cursor,
+        }
         if archived:
             query["archived"] = "1"
         return self._http.get("/v1/charts", query=query)
+
+    def list_all(
+        self,
+        workspace_id: str | None = None,
+        external_ref: str | None = None,
+        archived: bool = False,
+        limit: int | None = None,
+    ) -> Iterator[dict[str, Any]]:
+        """Every chart, paging transparently.
+
+        A generator rather than a list: paginating exists to stop loading an
+        unbounded result set into memory, and returning a list would hand that
+        problem straight back to the caller.
+
+            for chart in seatlayer.charts.list_all():
+                ...
+        """
+        cursor: str | None = None
+        while True:
+            page = self.list(workspace_id, external_ref, archived, limit, cursor)
+            yield from page.get("charts", [])
+            cursor = page.get("nextCursor")
+            if not cursor:
+                return
 
     def create(
         self,
@@ -100,10 +136,50 @@ class Events:
     def __init__(self, http: HttpClient) -> None:
         self._http = http
 
-    def list(self, workspace_id: str | None = None, external_ref: str | None = None) -> Any:
-        return self._http.get(
-            "/v1/events", query={"workspaceId": workspace_id, "externalRef": external_ref}
-        )
+    def list(
+        self,
+        workspace_id: str | None = None,
+        external_ref: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        counts: bool = True,
+    ) -> Any:
+        """One page of events.
+
+        Live availability ``counts`` cost one round-trip per event server-side.
+        They are on by default because most callers want them; pass
+        ``counts=False`` when paging a whole catalogue, where you almost
+        certainly do not.
+        """
+        query: dict[str, Any] = {
+            "workspaceId": workspace_id,
+            "externalRef": external_ref,
+            "limit": limit,
+            "cursor": cursor,
+        }
+        if not counts:
+            query["counts"] = "0"
+        return self._http.get("/v1/events", query=query)
+
+    def list_all(
+        self,
+        workspace_id: str | None = None,
+        external_ref: str | None = None,
+        limit: int | None = None,
+        counts: bool = False,
+    ) -> Iterator[dict[str, Any]]:
+        """Every event, paging transparently.
+
+        Defaults to ``counts=False`` — you are walking the whole list, so
+        per-event availability is rarely what you want and always what it costs.
+        """
+        cursor: str | None = None
+        while True:
+            page = self.list(workspace_id, external_ref, limit, cursor, counts)
+            yield from page.get("events", [])
+            cursor = page.get("nextCursor")
+            if not cursor:
+                return
 
     def create(
         self,
@@ -259,6 +335,20 @@ class Inventory:
             body=body,
             idempotency_key=idempotency_key,
         )
+
+    def extend_hold(self, event_key: str, hold_id: str, ttl_ms: int | None = None) -> Any:
+        """Push an active hold's expiry out by a fresh window before it lapses.
+
+        Use this rather than release-and-re-hold when an order is taking longer
+        than the checkout window — invoiced sales, a phone order on hold.
+        Releasing first hands the seats to whoever is racing for them in
+        between. A hold that is gone, expired, or at its renewal cap answers
+        409 ``cannot_extend``.
+        """
+        body: dict[str, Any] = {"holdId": hold_id}
+        if ttl_ms is not None:
+            body["ttlMs"] = ttl_ms
+        return self._http.post(self._path(event_key, "/extend"), body=body)
 
     def retrieve_hold(self, event_key: str, hold_id: str) -> Any:
         """Authoritative items and prices. Charge from this, not the browser."""

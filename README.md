@@ -66,6 +66,46 @@ seatlayer.inventory.book_best_available(event_key, qty=2, booking_ref="phone-118
 seatlayer.inventory.box_office_book(event_key, labels=["A-1", "A-2"], booking_ref="comp-14")
 ```
 
+## Listing and pagination
+
+`list()` returns one page plus a `nextCursor`. When you want everything, `list_all()` pages for you
+and yields as it goes — a generator rather than a list, because the point of paginating is to *not*
+hold an unbounded result set in memory.
+
+```python
+# One page, your own paging.
+page = seatlayer.events.list(limit=50)
+page["events"]
+page.get("nextCursor")   # absent once exhausted
+
+# Or let the SDK walk it.
+for event in seatlayer.events.list_all():
+    sync(event)
+```
+
+Listing events includes live availability `counts` by default, which costs the server one
+round-trip **per event**. `list_all()` turns them off automatically — walking a whole catalogue is
+exactly when you don't want that — and you can control it explicitly:
+
+```python
+seatlayer.events.list(limit=50, counts=False)
+```
+
+## Keeping a hold alive
+
+When an order takes longer than the checkout window — an invoice, a phone sale — extend rather than
+release and re-hold. Releasing first hands the seats to whoever is racing for them in between.
+
+```python
+from seatlayer import SeatLayerConflictError
+
+try:
+    seatlayer.inventory.extend_hold(event_key, hold_id, ttl_ms=10 * 60_000)
+except SeatLayerConflictError:
+    # Gone, expired, or at its renewal cap — the buyer has to re-pick.
+    ...
+```
+
 ## Embedding the control room
 
 Your secret key never reaches a browser. Mint a scoped token instead.
@@ -115,9 +155,9 @@ def seatlayer_webhook():
     except WebhookVerificationError:
         return "", 400
 
-    # Deliveries are signed over the body only — there is no timestamp header and
-    # no tolerance window, so a captured delivery stays valid. Deduplicate on
-    # occurrenceId; this is your replay protection.
+    # The signed body carries `at`, but nothing enforces a freshness window, so
+    # a captured delivery stays valid indefinitely. Deduplicate on occurrenceId —
+    # this is your replay protection, not an optimisation.
     if already_processed(event["occurrenceId"]):
         return "", 200
 
@@ -180,9 +220,9 @@ seatlayer.request("POST", "/v1/events/ev_1/some-new-route", body={...})
 
 | Resource | Methods |
 | --- | --- |
-| `charts` | `list` `create` `retrieve` `update` `delete` `copy` `archive` `unarchive` `publish` |
-| `events` | `list` `create` `retrieve` `update` `delete` `update_chart` `close` `reopen` `archive` `retrieve_hold_ttl` `update_hold_ttl` `retrieve_report` `retrieve_log` |
-| `inventory` | `hold` `hold_best_available` `book_best_available` `retrieve_hold` `release` `book` `box_office_book` `unbook` `block` `unblock` `unblock_all` `retrieve_availability` `update_availability` |
+| `charts` | `list` `list_all` `create` `retrieve` `update` `delete` `copy` `archive` `unarchive` `publish` |
+| `events` | `list` `list_all` `create` `retrieve` `update` `delete` `update_chart` `close` `reopen` `archive` `retrieve_hold_ttl` `update_hold_ttl` `retrieve_report` `retrieve_log` |
+| `inventory` | `hold` `hold_best_available` `book_best_available` `extend_hold` `retrieve_hold` `release` `book` `box_office_book` `unbook` `block` `unblock` `unblock_all` `retrieve_availability` `update_availability` |
 | `sessions` | `create_manage_session` `revoke_manage_session` `create_designer_session` `revoke_designer_session` |
 | `webhooks` | `list` `create` `update` `delete` `list_deliveries` |
 | `workspaces` | `list` `create` `retrieve` `update` |

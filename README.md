@@ -252,6 +252,7 @@ Full reference: [docs.seatlayer.io/server-api](https://docs.seatlayer.io/server-
 | Android | [`seatlayer-android`](https://github.com/seatlayer/seatlayer-android) |
 | Flutter | [`seatlayer_flutter`](https://github.com/seatlayer/seatlayer-flutter) |
 | Node.js (server) | [`@seatlayer/server`](https://github.com/seatlayer/seatlayer-node) |
+| PHP (server) | [`seatlayer/seatlayer-php`](https://github.com/seatlayer/seatlayer-php) |
 
 ## Development
 

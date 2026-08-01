@@ -5,11 +5,13 @@ Official Python server SDK for the [SeatLayer](https://seatlayer.io) reserved-se
 > **Server-side only.** This package authenticates with your secret key. Never run it anywhere a
 > ticket buyer can reach — browser surfaces get short-lived, origin-bound tokens that you mint here.
 
+## Install
+
 ```bash
 pip install seatlayer
 ```
 
-Requires Python 3.10+. No runtime dependencies.
+Requires Python 3.10 or newer. No runtime dependencies.
 
 ## Quick start
 
@@ -228,6 +230,35 @@ seatlayer.request("POST", "/v1/events/ev_1/some-new-route", body={...})
 | `workspaces` | `list` `create` `retrieve` `update` |
 
 Full reference: [docs.seatlayer.io/server-api](https://docs.seatlayer.io/server-api/)
+
+## Related resources
+
+- [Server SDK guide](https://docs.seatlayer.io/server-sdk/install/)
+- [Errors, retries and idempotency](https://docs.seatlayer.io/server-sdk/reliability/)
+- [Webhook verification](https://docs.seatlayer.io/server-sdk/webhooks/)
+- [Server API reference](https://docs.seatlayer.io/server-api/events/)
+- [OpenAPI description](https://docs.seatlayer.io/openapi.json)
+- [Agent-readable documentation](https://docs.seatlayer.io/llms.txt)
+- [SeatLayer GitHub organization](https://github.com/seatlayer)
+
+### Other SeatLayer SDKs
+
+| Surface | Package |
+|---|---|
+| Browser (vanilla) | [`@seatlayer/js`](https://github.com/seatlayer/seatlayer-sdk) |
+| React | [`@seatlayer/react`](https://github.com/seatlayer/seatlayer-sdk) |
+| React Native | [`@seatlayer/react-native`](https://github.com/seatlayer/seatlayer-react-native) |
+| iOS | [`seatlayer-ios`](https://github.com/seatlayer/seatlayer-ios) |
+| Android | [`seatlayer-android`](https://github.com/seatlayer/seatlayer-android) |
+| Flutter | [`seatlayer_flutter`](https://github.com/seatlayer/seatlayer-flutter) |
+| Node.js (server) | [`@seatlayer/server`](https://github.com/seatlayer/seatlayer-node) |
+
+## Development
+
+```bash
+pip install -e ".[dev]"
+ruff check src tests && mypy && pytest -q
+```
 
 ## License
 

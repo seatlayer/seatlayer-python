@@ -1,5 +1,9 @@
 [build-system]
-requires = ["hatchling"]
+# Floor pinned: PEP 639 license expressions (the `license = "MIT"` form below and
+# the Metadata-Version 2.4 output PyPI reads) need hatchling 1.27 or newer. An
+# unpinned requirement would silently build older, lossier metadata on a machine
+# that happens to resolve an earlier hatchling.
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
@@ -7,15 +11,26 @@ name = "seatlayer"
 version = "0.1.0"
 description = "Official Python server SDK for the SeatLayer reserved-seating API."
 readme = "README.md"
-license = { file = "LICENSE" }
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
+authors = [{ name = "SeatLayer", email = "hello@seatlayer.io" }]
+maintainers = [{ name = "SeatLayer", email = "hello@seatlayer.io" }]
 keywords = ["seatlayer", "reserved-seating", "seating-chart", "ticketing", "box-office"]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",
-  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Topic :: Software Development :: Libraries",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Topic :: Office/Business",
+  "Typing :: Typed",
 ]
 # No runtime dependencies on purpose: a server SDK that drags in a dependency
 # tree becomes a supply-chain surface for every customer who installs it.
@@ -23,7 +38,8 @@ dependencies = []
 
 [project.urls]
 Homepage = "https://seatlayer.io"
-Documentation = "https://docs.seatlayer.io/server-api/"
+Documentation = "https://docs.seatlayer.io/server-sdk/install/"
+Changelog = "https://github.com/seatlayer/seatlayer-python/blob/main/CHANGELOG.md"
 Source = "https://github.com/seatlayer/seatlayer-python"
 Issues = "https://github.com/seatlayer/seatlayer-python/issues"
 
@@ -32,6 +48,17 @@ dev = ["pytest>=8", "mypy>=1.11", "ruff>=0.6"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/seatlayer"]
+
+[tool.hatch.build.targets.sdist]
+# The sdist keeps `tests/` on purpose — downstream redistributors (Debian, Fedora,
+# conda-forge) build from the sdist and expect to be able to run the suite. What it
+# must NOT carry is repo-internal process material: AGENTS.md is instructions for
+# agents working on this repo, not documentation for people installing the package.
+exclude = [
+  "/.github",
+  "/.gitignore",
+  "/AGENTS.md",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

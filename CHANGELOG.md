@@ -1,8 +1,10 @@
 # Changelog
 
-## 0.1.0 — unreleased
+## 0.1.0 — 2026-08-04
 
-First release of the SeatLayer Python server SDK.
+First public release: PyPI `seatlayer`.
+
+Initial contents of the SeatLayer Python server SDK.
 
 - `inventory.extend_hold` — keep a server-side hold alive past the checkout window.
 - `charts.list` / `events.list` take `limit` and `cursor`; `list_all()` pages transparently as a
@@ -18,6 +20,8 @@ First release of the SeatLayer Python server SDK.
   `SeatLayerNotFoundError`, `SeatLayerConnectionError`.
 - `verify_webhook` — raw-body HMAC-SHA256 verification via `hmac.compare_digest`.
 - `create_manage_session` requires explicit `capabilities`; the API's default grants
-  `event:cancel`, which reverses paid bookings.
+  `event:cancel`, which unbooks paid seats and authorises gateway refunds.
 - Constructor rejects a `pk_` key by name rather than failing as a 401 later.
+- Ships a PEP 561 `py.typed` marker, so the annotations are visible to mypy and pyright in
+  your own project rather than only used internally.
 - Zero runtime dependencies; standard library only.

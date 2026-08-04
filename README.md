@@ -121,9 +121,26 @@ session = seatlayer.sessions.create_manage_session(
 )
 ```
 
-`capabilities` is **required** by this SDK even though the API defaults it. That default grants all
-four including `event:cancel`, which reverses paid bookings — not something that should arrive by
-forgetting an argument. Grant the smallest set the page needs.
+`capabilities` is **required** by this SDK even though the API defaults it. Omit it at the API level
+and you get `event:view`, `event:block`, `event:cancel` and `event:reports` — including
+`event:cancel`, which unbooks paid seats **and authorises refunds against the organiser's connected
+payment gateway**. That is real money, moved by a token you handed to a browser; it should not
+arrive by forgetting an argument. Grant the smallest set the page needs.
+
+The full set, all opt-in:
+
+| Capability | Grants |
+|---|---|
+| `event:view` | Read the seat map and its live states |
+| `event:block` | Block and unblock seats |
+| `event:cancel` | Unbook paid seats and issue gateway refunds — destructive, moves money |
+| `event:reports` | Read sales and availability reports |
+| `event:channels:view` | Read sales channels and their allocations |
+| `event:channels:manage` | Create, pause and archive channels; rotate access links |
+
+The two `event:channels:*` capabilities are **not** in the default — a token minted before sales
+channels existed must not silently acquire channel authority — so ask for them explicitly if the
+page manages channels.
 
 The same pattern embeds the Designer in your own UI:
 
@@ -230,6 +247,22 @@ seatlayer.request("POST", "/v1/events/ev_1/some-new-route", body={...})
 | `workspaces` | `list` `create` `retrieve` `update` |
 
 Full reference: [docs.seatlayer.io/server-api](https://docs.seatlayer.io/server-api/)
+
+### Deliberately not in this SDK
+
+Some API surface is intentionally unwrapped, not merely pending:
+
+- **Hosted-checkout orders and refunds.** Reading or refunding a SeatLayer-hosted-checkout sale is
+  not a server-SDK capability. Those records only exist for organisations using hosted checkout; if
+  you run your own commerce store you refund in that store, through your own gateway.
+- **Connecting or assigning payment gateways.** Connecting one is a dashboard flow, so shipping only
+  the assignment half across seven SDKs would hand you a method that cannot yet succeed.
+- **Realtime seat updates.** Live seat state reaches the *browser* through the widget's own socket.
+  There is no server-side subscribe; a secret-key caller gets authoritative state from
+  `events.retrieve_report()` and `inventory.retrieve_availability()`.
+
+None of these are reachable through `request()` as a supported path either — they are excluded from
+the public manifest, not just from the wrapper.
 
 ## Related resources
 

@@ -5,9 +5,12 @@ from __future__ import annotations
 import io
 import json
 import urllib.error
-from typing import Any, Self
+from typing import Any
 
 import pytest
+
+# Not `typing.Self`: that is 3.11+, and this package supports 3.10.
+from typing_extensions import Self
 
 from seatlayer import (
     SeatLayer,

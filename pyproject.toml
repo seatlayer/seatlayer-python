@@ -44,7 +44,11 @@ Source = "https://github.com/seatlayer/seatlayer-python"
 Issues = "https://github.com/seatlayer/seatlayer-python/issues"
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "mypy>=1.11", "ruff>=0.6"]
+# `typing_extensions` is DEV-ONLY and must stay that way — `dependencies` above is
+# empty on purpose, and a server SDK that drags in a tree becomes a supply-chain
+# surface for every customer. The test suite needs `Self`, which `typing` only
+# gained in 3.11 while this package supports 3.10.
+dev = ["pytest>=8", "mypy>=1.11", "ruff>=0.6", "typing_extensions>=4.0"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/seatlayer"]

@@ -1,0 +1,97 @@
+name: Release
+
+# Publishes to PyPI via Trusted Publishing (OIDC). There is deliberately no API
+# token anywhere in this repository or in its secrets: PyPI mints a short-lived
+# token scoped to this one workflow run. A credential that does not exist cannot
+# leak, be committed, or need rotating.
+#
+# To release: push a tag matching the version in pyproject.toml.
+#
+#     git tag v0.1.0 && git push origin v0.1.0
+#
+# The build job re-runs the full gate rather than trusting that CI was green on
+# main — a tag can point at any commit, including one CI never saw.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install -e ".[dev]" build twine
+
+      - name: Gate
+        run: |
+          ruff check src tests
+          mypy
+          pytest -q
+
+      - name: Refuse to publish if the tag and the package version disagree
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(python -c 'import tomllib,pathlib;print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"])')"
+          if [ "$tag" != "$pkg" ]; then
+            echo "::error::tag v$tag does not match pyproject version $pkg"
+            exit 1
+          fi
+          # __init__.__version__ is a second literal with nothing enforcing
+          # agreement with pyproject; RELEASE.md says to check it by eye, which
+          # is exactly the kind of check that gets skipped.
+          init="$(python -c 'import re,pathlib;print(re.search(r"__version__\s*=\s*[\"'\'']([^\"'\'']+)", pathlib.Path("src/seatlayer/__init__.py").read_text()).group(1))')"
+          if [ "$init" != "$pkg" ]; then
+            echo "::error::__init__.__version__ is $init but pyproject says $pkg"
+            exit 1
+          fi
+
+      - name: Build
+        run: |
+          rm -rf dist
+          python -m build
+          twine check dist/*
+
+      - name: The wheel must carry py.typed and must not carry tests
+        run: |
+          whl="$(ls dist/*.whl)"
+          python - "$whl" <<'PY'
+          import sys, zipfile
+          names = zipfile.ZipFile(sys.argv[1]).namelist()
+          # Without py.typed every downstream mypy/pyright user silently loses
+          # all type information, and nothing else in the build catches it.
+          assert "seatlayer/py.typed" in names, "py.typed missing from wheel"
+          stowaways = [n for n in names if n.startswith(("tests/", ".github/"))]
+          assert not stowaways, f"unexpected files in wheel: {stowaways}"
+          print(f"wheel OK — {len(names)} entries")
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    # The environment is the gate: it is what stops anyone with commit access
+    # from publishing to PyPI just by pushing a tag.
+    environment:
+      name: pypi
+      url: https://pypi.org/p/seatlayer
+    permissions:
+      # Required for OIDC. This is the only elevated permission in the file, and
+      # it is scoped to the job that actually needs it.
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

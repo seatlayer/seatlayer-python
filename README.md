@@ -1,5 +1,10 @@
 # SeatLayer Python SDK
 
+[![CI](https://github.com/seatlayer/seatlayer-python/actions/workflows/ci.yml/badge.svg)](https://github.com/seatlayer/seatlayer-python/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/seatlayer.svg)](https://pypi.org/project/seatlayer/)
+[![Python](https://img.shields.io/pypi/pyversions/seatlayer.svg)](https://pypi.org/project/seatlayer/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-111827.svg)](LICENSE)
+
 Official Python server SDK for the [SeatLayer](https://seatlayer.io) reserved-seating API.
 
 > **Server-side only.** This package authenticates with your secret key. Never run it anywhere a
@@ -268,7 +273,7 @@ seatlayer.request("POST", "/v1/events/ev_1/some-new-route", body={...})
 | `webhooks` | `list` `create` `update` `delete` `list_deliveries` |
 | `workspaces` | `list` `create` `retrieve` `update` |
 
-Full reference: [docs.seatlayer.io/server-api](https://docs.seatlayer.io/server-api/)
+Full reference: [SeatLayer server API events](https://docs.seatlayer.io/server-api/events/)
 
 ### Deliberately not in this SDK
 

@@ -68,6 +68,27 @@ seatlayer.inventory.book_best_available(event_key, qty=2, booking_ref="phone-118
 seatlayer.inventory.box_office_book(event_key, labels=["A-1", "A-2"], booking_ref="comp-14")
 ```
 
+## Private and partner sales
+
+Channels split event inventory into explicit allocations. A channel id is
+reporting/routing metadata, not browser authority. Authenticate the buyer in
+your backend and mint a short-lived token restricted to the event, origin, and
+allowed allocations:
+
+```python
+access = seatlayer.channels.create_buyer_access_session(
+    event_key,
+    channel_ids=["chn_partner_a"],
+    include_public=False,
+    allowed_origin="https://tickets.example",
+)
+# Return access["token"] to the in-memory buyerAccessTokenProvider only.
+```
+
+Never log or persist the returned `bse_…` bearer. Allocation setup, previews,
+pause/archive controls, audit-safe session listing, and channel reports are on
+`seatlayer.channels`.
+
 ## Listing and pagination
 
 `list()` returns one page plus a `nextCursor`. When you want everything, `list_all()` pages for you
@@ -241,7 +262,8 @@ seatlayer.request("POST", "/v1/events/ev_1/some-new-route", body={...})
 | --- | --- |
 | `charts` | `list` `list_all` `create` `retrieve` `update` `delete` `copy` `archive` `unarchive` `publish` |
 | `events` | `list` `list_all` `create` `retrieve` `update` `delete` `update_chart` `close` `reopen` `archive` `retrieve_hold_ttl` `update_hold_ttl` `retrieve_report` `retrieve_log` |
-| `inventory` | `hold` `hold_best_available` `book_best_available` `extend_hold` `retrieve_hold` `release` `book` `box_office_book` `unbook` `block` `unblock` `unblock_all` `retrieve_availability` `update_availability` |
+| `inventory` | `hold` `hold_best_available` `book_best_available` `extend_hold` `retrieve_hold` `release` `book` `box_office_book` `unbook` `list_bookings` `retrieve_booking` `block` `unblock` `unblock_all` `retrieve_availability` `update_availability` |
+| `channels` | `list_channels` `create_channel` `update_channel` `update_assignments` `list_allocation` `retrieve_access_preview` `retrieve_report` `pause` `unpause` `archive` `create_buyer_access_session` `list_buyer_access_sessions` `revoke_buyer_access_session` |
 | `sessions` | `create_manage_session` `revoke_manage_session` `create_designer_session` `revoke_designer_session` |
 | `webhooks` | `list` `create` `update` `delete` `list_deliveries` |
 | `workspaces` | `list` `create` `retrieve` `update` |
@@ -278,18 +300,18 @@ the public manifest, not just from the wrapper.
 
 | Surface | Package |
 |---|---|
-| Browser (vanilla) | [`@seatlayer/js`](https://github.com/seatlayer/seatlayer-sdk) |
-| React | [`@seatlayer/react`](https://github.com/seatlayer/seatlayer-sdk) |
-| React Native | [`@seatlayer/react-native`](https://github.com/seatlayer/seatlayer-react-native) |
+| Browser (vanilla) | [`@seatlayer/js`](https://www.npmjs.com/package/@seatlayer/js) |
+| React | [`@seatlayer/react`](https://www.npmjs.com/package/@seatlayer/react) |
+| React Native | [`@seatlayer/react-native`](https://www.npmjs.com/package/@seatlayer/react-native) |
 | iOS | [`seatlayer-ios`](https://github.com/seatlayer/seatlayer-ios) |
 | Android | [`seatlayer-android`](https://github.com/seatlayer/seatlayer-android) |
-| Flutter | [`seatlayer_flutter`](https://github.com/seatlayer/seatlayer-flutter) |
-| Node.js (server) | [`@seatlayer/server`](https://github.com/seatlayer/seatlayer-node) |
-| PHP (server) | [`seatlayer/seatlayer-php`](https://github.com/seatlayer/seatlayer-php) |
-| Java (server) | [`io.seatlayer:seatlayer-java`](https://github.com/seatlayer/seatlayer-java) |
-| Go (server) | [`github.com/seatlayer/seatlayer-go`](https://github.com/seatlayer/seatlayer-go) |
-| Ruby (server) | [`seatlayer`](https://github.com/seatlayer/seatlayer-ruby) |
-| .NET (server) | [`SeatLayer`](https://github.com/seatlayer/seatlayer-dotnet) |
+| Flutter | [`seatlayer`](https://pub.dev/packages/seatlayer) |
+| Node.js (server) | [`@seatlayer/server`](https://www.npmjs.com/package/@seatlayer/server) |
+| PHP (server) | [`seatlayer/seatlayer-php`](https://packagist.org/packages/seatlayer/seatlayer-php) |
+| Java (server) | [`seatlayer-java` source](https://github.com/seatlayer/seatlayer-java) |
+| Go (server) | [`github.com/seatlayer/seatlayer-go`](https://pkg.go.dev/github.com/seatlayer/seatlayer-go) |
+| Ruby (server) | [`seatlayer`](https://rubygems.org/gems/seatlayer) |
+| .NET (server) | [`SeatLayer`](https://www.nuget.org/packages/SeatLayer) |
 
 ## Development
 

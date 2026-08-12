@@ -250,3 +250,56 @@ class TestExtendHold:
             sdk.inventory.extend_hold("ev_1", "h_9")
         assert caught.value.code == "cannot_extend"
 
+
+class TestChannels:
+    def test_creates_channel_with_camel_case_contract(self) -> None:
+        sdk, calls = make_client([{"status": 201, "body": {"ok": True}}])
+        sdk.channels.create_channel(
+            "ev/1",
+            "Partners",
+            external_ref="partner-a",
+            access_intent="server",
+        )
+
+        assert calls[0].full_url == "https://api.seatlayer.io/v1/events/ev%2F1/channels"
+        assert json.loads(calls[0].data) == {
+            "name": "Partners",
+            "externalRef": "partner-a",
+            "accessIntent": "server",
+        }
+
+    def test_mints_origin_bound_buyer_access(self) -> None:
+        sdk, calls = make_client([{"status": 201, "body": {"token": "bse_x"}}])
+        sdk.channels.create_buyer_access_session(
+            "ev_1",
+            include_public=False,
+            allowed_origin="https://tickets.example",
+            channel_ids=["chn_partner"],
+        )
+
+        assert json.loads(calls[0].data) == {
+            "channelIds": ["chn_partner"],
+            "includePublic": False,
+            "allowedOrigin": "https://tickets.example",
+        }
+
+    def test_reads_booking_by_normalized_reference(self) -> None:
+        sdk, calls = make_client([{"status": 200, "body": {}}])
+        sdk.inventory.retrieve_booking("ev_1", " order/42 ")
+        assert calls[0].full_url.endswith("/v1/events/ev_1/bookings/order%2F42")
+
+    def test_channel_aware_hold_uses_platform_authority_fields(self) -> None:
+        sdk, calls = make_client([{"status": 201, "body": {"holdId": "h_1"}}])
+        sdk.inventory.hold(
+            "ev_1",
+            labels=["A-1"],
+            channel_ids=["chn_partner"],
+            ignore_channel_restrictions=False,
+            reason="partner order",
+        )
+        assert json.loads(calls[0].data) == {
+            "labels": ["A-1"],
+            "channelIds": ["chn_partner"],
+            "ignoreChannelRestrictions": False,
+            "reason": "partner order",
+        }

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.0 — 2026-08-12
+
+- Added the `channels` resource for allocation management, access previews,
+  channel reporting, and origin-bound buyer access sessions.
+- Added inventory booking lifecycle reads and channel-aware hold/book options.
+- Require a non-empty stable booking reference for booking, unbooking, and
+  booking-detail reads.
+- Expanded registry, documentation, and agent-discovery links in the README.
+
 ## 0.1.0 — 2026-08-04
 
 First public release: PyPI `seatlayer`.

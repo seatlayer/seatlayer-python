@@ -268,6 +268,9 @@ class Inventory:
         selections: list[dict[str, Any]] | None = None,
         ttl_ms: int | None = None,
         replace_hold_id: str | None = None,
+        channel_ids: list[str] | None = None,
+        ignore_channel_restrictions: bool | None = None,
+        reason: str | None = None,
         idempotency_key: str | None = None,
     ) -> Any:
         body: dict[str, Any] = {}
@@ -276,6 +279,9 @@ class Inventory:
             ("selections", selections),
             ("ttlMs", ttl_ms),
             ("replaceHoldId", replace_hold_id),
+            ("channelIds", channel_ids),
+            ("ignoreChannelRestrictions", ignore_channel_restrictions),
+            ("reason", reason),
         ):
             if value is not None:
                 body[key] = value
@@ -290,6 +296,9 @@ class Inventory:
         category_key: str | None = None,
         zone_id: str | None = None,
         ttl_ms: int | None = None,
+        channel_ids: list[str] | None = None,
+        ignore_channel_restrictions: bool | None = None,
+        reason: str | None = None,
         idempotency_key: str | None = None,
     ) -> Any:
         """Ask us to pick the best free objects and hold them.
@@ -303,6 +312,9 @@ class Inventory:
             ("categoryKey", category_key),
             ("zoneId", zone_id),
             ("ttlMs", ttl_ms),
+            ("channelIds", channel_ids),
+            ("ignoreChannelRestrictions", ignore_channel_restrictions),
+            ("reason", reason),
         ):
             if value is not None:
                 body[key] = value
@@ -319,6 +331,9 @@ class Inventory:
         booking_ref: str,
         category_key: str | None = None,
         zone_id: str | None = None,
+        channel_ids: list[str] | None = None,
+        ignore_channel_restrictions: bool | None = None,
+        reason: str | None = None,
         idempotency_key: str | None = None,
     ) -> Any:
         """Pick and book in one call — the box-office shape.
@@ -327,7 +342,13 @@ class Inventory:
         between two calls would strand inventory until the TTL expired.
         """
         body: dict[str, Any] = {"qty": qty, "bookingRef": booking_ref}
-        for key, value in (("categoryKey", category_key), ("zoneId", zone_id)):
+        for key, value in (
+            ("categoryKey", category_key),
+            ("zoneId", zone_id),
+            ("channelIds", channel_ids),
+            ("ignoreChannelRestrictions", ignore_channel_restrictions),
+            ("reason", reason),
+        ):
             if value is not None:
                 body[key] = value
         return self._http.post(
@@ -365,13 +386,22 @@ class Inventory:
         hold_id: str | None = None,
         labels: list[str] | None = None,
         booking_ref: str | None = None,
+        channel_ids: list[str] | None = None,
+        ignore_channel_restrictions: bool | None = None,
+        reason: str | None = None,
         idempotency_key: str | None = None,
     ) -> Any:
+        if booking_ref is None or not booking_ref.strip():
+            raise ValueError("booking_ref is required and must be a non-empty stable reference")
+        booking_ref = booking_ref.strip()
         body: dict[str, Any] = {}
         for key, value in (
             ("holdId", hold_id),
             ("labels", labels),
             ("bookingRef", booking_ref),
+            ("channelIds", channel_ids),
+            ("ignoreChannelRestrictions", ignore_channel_restrictions),
+            ("reason", reason),
         ):
             if value is not None:
                 body[key] = value
@@ -386,15 +416,24 @@ class Inventory:
         booking_ref: str,
         idempotency_key: str | None = None,
     ) -> Any:
+        booking_ref = booking_ref.strip()
+        if not booking_ref:
+            raise ValueError("booking_ref is required and must be a non-empty stable reference")
         return self._http.post(
             self._path(event_key, "/box-book"),
             body={"labels": labels, "bookingRef": booking_ref},
             idempotency_key=idempotency_key,
         )
 
-    def unbook(self, event_key: str, labels: list[str]) -> Any:
+    def unbook(self, event_key: str, labels: list[str], booking_ref: str) -> Any:
         """Reverse a booking. Requires a key with cancel authority."""
-        return self._http.post(self._path(event_key, "/unbook"), body={"labels": labels})
+        booking_ref = booking_ref.strip()
+        if not booking_ref:
+            raise ValueError("booking_ref is required and must be a non-empty stable reference")
+        return self._http.post(
+            self._path(event_key, "/unbook"),
+            body={"labels": labels, "bookingRef": booking_ref},
+        )
 
     def block(self, event_key: str, labels: list[str]) -> Any:
         """Hold inventory back from sale (house seats, production holds)."""
@@ -411,6 +450,208 @@ class Inventory:
 
     def update_availability(self, event_key: str, **fields: Any) -> Any:
         return self._http.post(self._path(event_key, "/availability"), body=fields)
+
+    def list_bookings(
+        self,
+        event_key: str,
+        q: str | None = None,
+        state: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+    ) -> Any:
+        """One page of inventory booking lifecycles, newest first."""
+        return self._http.get(
+            self._path(event_key, "/bookings"),
+            query={
+                "q": q,
+                "state": state,
+                "limit": limit,
+                "cursor": cursor,
+            },
+        )
+
+    def retrieve_booking(self, event_key: str, booking_ref: str) -> Any:
+        booking_ref = booking_ref.strip()
+        if not booking_ref:
+            raise ValueError("booking_ref is required and must be a non-empty stable reference")
+        return self._http.get(
+            self._path(event_key, f"/bookings/{quote(booking_ref)}")
+        )
+
+
+class Channels:
+    """Private allocations, reporting, and short-lived buyer access."""
+
+    def __init__(self, http: HttpClient) -> None:
+        self._http = http
+
+    def _path(self, event_key: str, suffix: str = "") -> str:
+        return f"/v1/events/{quote(event_key)}/channels{suffix}"
+
+    def list_channels(self, event_key: str, include_archived: bool = False) -> Any:
+        query = {"includeArchived": "1"} if include_archived else None
+        return self._http.get(self._path(event_key), query=query)
+
+    def create_channel(
+        self,
+        event_key: str,
+        name: str,
+        color: str | None = None,
+        marker: str | None = None,
+        external_ref: str | None = None,
+        access_intent: str | None = None,
+        reason: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        body = {
+            "name": name,
+            "color": color,
+            "marker": marker,
+            "externalRef": external_ref,
+            "accessIntent": access_intent,
+            "reason": reason,
+        }
+        body = {key: value for key, value in body.items() if value is not None}
+        return self._http.post(
+            self._path(event_key), body=body, idempotency_key=idempotency_key
+        )
+
+    def update_channel(
+        self,
+        event_key: str,
+        channel_id: str,
+        name: str | None = None,
+        access_intent: str | None = None,
+        acknowledge_live_access: bool | None = None,
+        reason: str | None = None,
+    ) -> Any:
+        body = {
+            "name": name,
+            "accessIntent": access_intent,
+            "acknowledgeLiveAccess": acknowledge_live_access,
+            "reason": reason,
+        }
+        return self._http.patch(
+            self._path(event_key, f"/{quote(channel_id)}"),
+            body={key: value for key, value in body.items() if value is not None},
+        )
+
+    def update_assignments(
+        self,
+        event_key: str,
+        labels: list[str],
+        assignment_version: int,
+        target_channel_id: str | None = None,
+        reason: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        return self._http.post(
+            self._path(event_key, "/assignments"),
+            body={
+                "targetChannelId": target_channel_id,
+                "labels": labels,
+                "assignmentVersion": assignment_version,
+                **({"reason": reason} if reason is not None else {}),
+            },
+            idempotency_key=idempotency_key,
+        )
+
+    def list_allocation(
+        self, event_key: str, after_label: str | None = None, limit: int | None = None
+    ) -> Any:
+        return self._http.get(
+            self._path(event_key, "/allocation"),
+            query={"afterLabel": after_label, "limit": limit},
+        )
+
+    def retrieve_access_preview(
+        self,
+        event_key: str,
+        channel_ids: list[str] | None = None,
+        include_public: bool | None = None,
+    ) -> Any:
+        return self._http.get(
+            self._path(event_key, "/preview"),
+            query={
+                "channelIds": ",".join(channel_ids) if channel_ids else None,
+                "includePublic": "1" if include_public else "0" if include_public is not None else None,
+            },
+        )
+
+    def retrieve_report(self, event_key: str) -> Any:
+        return self._http.get(self._path(event_key, "/report"))
+
+    def pause(self, event_key: str, channel_id: str, reason: str | None = None) -> Any:
+        return self._http.post(
+            self._path(event_key, f"/{quote(channel_id)}/pause"),
+            body={"reason": reason} if reason is not None else {},
+        )
+
+    def unpause(self, event_key: str, channel_id: str, reason: str | None = None) -> Any:
+        return self._http.post(
+            self._path(event_key, f"/{quote(channel_id)}/unpause"),
+            body={"reason": reason} if reason is not None else {},
+        )
+
+    def archive(
+        self,
+        event_key: str,
+        channel_id: str,
+        destination: str | None,
+        reason: str | None = None,
+    ) -> Any:
+        return self._http.post(
+            self._path(event_key, f"/{quote(channel_id)}/archive"),
+            body={
+                "destination": destination,
+                **({"reason": reason} if reason is not None else {}),
+            },
+        )
+
+    def create_buyer_access_session(
+        self,
+        event_key: str,
+        include_public: bool,
+        allowed_origin: str,
+        channel_ids: list[str] | None = None,
+        expires_in_seconds: int | None = None,
+        max_quantity: int | None = None,
+        buyer_ref: str | None = None,
+        partner_ref: str | None = None,
+        client_request_id: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        return self._http.post(
+            f"/v1/events/{quote(event_key)}/buyer-access-sessions",
+            body={key: value for key, value in {
+                "channelIds": channel_ids,
+                "includePublic": include_public,
+                "allowedOrigin": allowed_origin,
+                "expiresInSeconds": expires_in_seconds,
+                "maxQuantity": max_quantity,
+                "buyerRef": buyer_ref,
+                "partnerRef": partner_ref,
+                "clientRequestId": client_request_id,
+            }.items() if value is not None},
+            idempotency_key=idempotency_key,
+        )
+
+    def list_buyer_access_sessions(
+        self,
+        event_key: str,
+        state: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+    ) -> Any:
+        return self._http.get(
+            f"/v1/events/{quote(event_key)}/buyer-access-sessions",
+            query={"state": state, "limit": limit, "cursor": cursor},
+        )
+
+    def revoke_buyer_access_session(self, event_key: str, session_id: str) -> Any:
+        return self._http.delete(
+            f"/v1/events/{quote(event_key)}/buyer-access-sessions/{quote(session_id)}"
+        )
 
 
 class Sessions:

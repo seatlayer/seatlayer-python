@@ -10,7 +10,7 @@ from collections.abc import Callable
 from typing import Any
 
 from .http import DEFAULT_BASE_URL, DEFAULT_MAX_RETRIES, DEFAULT_TIMEOUT, HttpClient
-from .resources import Charts, Events, Inventory, Sessions, Webhooks, Workspaces
+from .resources import Channels, Charts, Events, Inventory, Sessions, Webhooks, Workspaces
 
 
 class SeatLayer:
@@ -35,6 +35,7 @@ class SeatLayer:
         self.charts = Charts(self._http)
         self.events = Events(self._http)
         self.inventory = Inventory(self._http)
+        self.channels = Channels(self._http)
         self.sessions = Sessions(self._http)
         self.webhooks = Webhooks(self._http)
         self.workspaces = Workspaces(self._http)

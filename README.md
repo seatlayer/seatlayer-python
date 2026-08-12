@@ -308,7 +308,7 @@ the public manifest, not just from the wrapper.
 | Flutter | [`seatlayer`](https://pub.dev/packages/seatlayer) |
 | Node.js (server) | [`@seatlayer/server`](https://www.npmjs.com/package/@seatlayer/server) |
 | PHP (server) | [`seatlayer/seatlayer-php`](https://packagist.org/packages/seatlayer/seatlayer-php) |
-| Java (server) | [`seatlayer-java` source](https://github.com/seatlayer/seatlayer-java) |
+| Java (server) | [`io.seatlayer:seatlayer-java`](https://central.sonatype.com/artifact/io.seatlayer/seatlayer-java/0.1.0) |
 | Go (server) | [`github.com/seatlayer/seatlayer-go`](https://pkg.go.dev/github.com/seatlayer/seatlayer-go) |
 | Ruby (server) | [`seatlayer`](https://rubygems.org/gems/seatlayer) |
 | .NET (server) | [`SeatLayer`](https://www.nuget.org/packages/SeatLayer) |

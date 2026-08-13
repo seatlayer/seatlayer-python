@@ -31,6 +31,11 @@ from .types import (
     InventoryItem,
     ManageCapability,
     ManageSession,
+    TemplateInstantiateRequest,
+    TicketRelease,
+    TicketReleaseAction,
+    TicketReleaseList,
+    TicketReleaseReplaceInput,
     WebhookCreateEnvelope,
     WebhookDelivery,
     WebhookDeliveryPage,
@@ -41,7 +46,7 @@ from .types import (
 )
 from .webhooks import WebhookVerificationError, verify_webhook
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 __all__ = [
     "AccessLink",
@@ -69,6 +74,11 @@ __all__ = [
     "SeatLayerNotFoundError",
     "SeatLayerRateLimitError",
     "SeatLayerValidationError",
+    "TemplateInstantiateRequest",
+    "TicketRelease",
+    "TicketReleaseAction",
+    "TicketReleaseList",
+    "TicketReleaseReplaceInput",
     "WebhookCreateEnvelope",
     "WebhookDelivery",
     "WebhookDeliveryPage",

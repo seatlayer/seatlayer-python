@@ -26,8 +26,8 @@ from seatlayer import SeatLayer
 
 seatlayer = SeatLayer(os.environ["SEATLAYER_SECRET_KEY"])
 
-# 1. Provision a venue for a new organiser from one of your templates.
-chart = seatlayer.charts.copy("c_template_arena")["meta"]
+# 1. Provision a venue from the public template catalog as a new draft chart.
+chart = seatlayer.templates.instantiate_template("tpl_arena")["meta"]
 seatlayer.charts.publish(chart["id"])
 
 # 2. Create an event on it.
@@ -251,7 +251,7 @@ requests.
 ## Reliability
 
 **Retries and idempotency.** Reads retry 408, 429 and 5xx responses with backoff. Only chart create,
-chart copy, event create and workspace create opt into mutation retries: the SDK generates one
+chart copy, template instantiation, event create and workspace create opt into mutation retries: the SDK generates one
 `Idempotency-Key` and reuses it for every attempt. All other mutations are single-attempt, even if
 you supply a key.
 
@@ -263,7 +263,7 @@ before trying again.
 ```python
 SeatLayer(
     os.environ["SEATLAYER_SECRET_KEY"],
-    max_retries=3,   # attempts for reads and the four replay-safe creates
+    max_retries=3,   # attempts for reads and the five replay-safe creates
     timeout=30.0,    # seconds, per attempt
 )
 ```
@@ -282,7 +282,8 @@ seatlayer.request("POST", "/v1/events/ev_1/some-new-route", body={...})
 | Resource | Methods |
 | --- | --- |
 | `charts` | `list` `list_all` `create` `retrieve` `update` `delete` `copy` `archive` `unarchive` `publish` |
-| `events` | `list` `list_all` `create` `retrieve` `update` `delete` `update_poster` `delete_poster` `update_chart` `close` `reopen` `archive` `retrieve_hold_ttl` `update_hold_ttl` `retrieve_report` `retrieve_log` |
+| `templates` | `instantiate_template` |
+| `events` | `list` `list_all` `create` `retrieve` `update` `delete` `update_poster` `delete_poster` `update_chart` `close` `reopen` `archive` `list_ticket_releases` `update_ticket_releases` `close_ticket_release` `retrieve_hold_ttl` `update_hold_ttl` `retrieve_report` `retrieve_log` |
 | `inventory` | `hold` `hold_best_available` `book_best_available` `extend_hold` `retrieve_hold` `release` `book` `box_office_book` `unbook` `list_bookings` `retrieve_booking` `block` `unblock` `unblock_all` `retrieve_availability` `update_availability` |
 | `channels` | `list_channels` `create_channel` `update_channel` `update_assignments` `list_allocation` `retrieve_access_preview` `retrieve_report` `pause` `unpause` `archive` `create_buyer_access_session` `list_buyer_access_sessions` `revoke_buyer_access_session` `create_access_link` `list_access_links` `rotate_access_link` `revoke_access_link` |
 | `sessions` | `create_manage_session` `revoke_manage_session` `create_designer_session` `revoke_designer_session` |
@@ -329,7 +330,7 @@ the public manifest, not just from the wrapper.
 | Flutter | [`seatlayer`](https://pub.dev/packages/seatlayer) |
 | Node.js (server) | [`@seatlayer/server`](https://www.npmjs.com/package/@seatlayer/server) |
 | PHP (server) | [`seatlayer/seatlayer-php`](https://packagist.org/packages/seatlayer/seatlayer-php) |
-| Java (server) | [`io.seatlayer:seatlayer-java`](https://central.sonatype.com/artifact/io.seatlayer/seatlayer-java/0.1.0) |
+| Java (server) | [`io.seatlayer:seatlayer-java`](https://central.sonatype.com/artifact/io.seatlayer/seatlayer-java) |
 | Go (server) | [`github.com/seatlayer/seatlayer-go`](https://pkg.go.dev/github.com/seatlayer/seatlayer-go) |
 | Ruby (server) | [`seatlayer`](https://rubygems.org/gems/seatlayer) |
 | .NET (server) | [`SeatLayer`](https://www.nuget.org/packages/SeatLayer) |

@@ -113,6 +113,7 @@ class TestRequests:
             {"status": 201, "body": {}},
             {"status": 201, "body": {}},
             {"status": 201, "body": {}},
+            {"status": 201, "body": {}},
             {"status": 200, "body": {}},
         ])
         sdk.events.list()
@@ -120,12 +121,43 @@ class TestRequests:
         sdk.charts.create(name="Arena")
         sdk.charts.copy("c_1")
         sdk.workspaces.create(name="Promoter")
+        sdk.templates.instantiate_template("tpl_1")
         sdk.inventory.hold("ev_1", labels=["A-1"])
 
         assert calls[0].get_header("Idempotency-key") is None
-        for call in calls[1:5]:
+        for call in calls[1:6]:
             assert call.get_header("Idempotency-key")
-        assert calls[5].get_header("Idempotency-key") is None
+        assert calls[6].get_header("Idempotency-key") is None
+
+    def test_template_and_ticket_release_wire_contracts(self) -> None:
+        sdk, calls = make_client([
+            {"status": 201, "body": {"meta": {"id": "c_1"}}},
+            {"status": 200, "body": {"releases": []}},
+            {"status": 200, "body": {"releases": []}},
+            {"status": 200, "body": {"releases": []}},
+        ])
+
+        sdk.templates.instantiate_template("tpl/a")
+        sdk.events.list_ticket_releases("ev/a")
+        sdk.events.update_ticket_releases(
+            "ev/a",
+            [{"name": "Early", "price": 2500, "action": "buy"}],
+        )
+        sdk.events.close_ticket_release("ev/a", "rel/a")
+
+        assert calls[0].full_url.endswith("/v1/templates/tpl%2Fa/instantiate")
+        assert json.loads(calls[0].data) == {}
+        assert calls[0].get_header("Idempotency-key")
+        assert calls[1].method == "GET"
+        assert calls[1].full_url.endswith("/v1/events/ev%2Fa/releases")
+        assert calls[2].method == "PUT"
+        assert json.loads(calls[2].data) == {
+            "releases": [{"name": "Early", "price": 2500, "action": "buy"}]
+        }
+        assert calls[2].get_header("Idempotency-key") is None
+        assert calls[3].method == "POST"
+        assert calls[3].full_url.endswith("/v1/events/ev%2Fa/releases/rel%2Fa/close")
+        assert calls[3].get_header("Idempotency-key") is None
 
     def test_honours_caller_supplied_idempotency_key(self) -> None:
         sdk, calls = make_client([{"status": 201, "body": {}}])
@@ -241,6 +273,26 @@ class TestRetry:
         assert len(calls) == 2
         # Same key on the retry, or the server would create two events.
         assert calls[0].get_header("Idempotency-key") == calls[1].get_header("Idempotency-key")
+
+    def test_template_instantiate_retries_but_release_mutations_do_not(self) -> None:
+        template, template_calls = make_client([
+            {"status": 503, "body": {"error": "unavailable"}},
+            {"status": 201, "body": {"meta": {"id": "c_1"}}},
+        ])
+        template.templates.instantiate_template("tpl_1")
+        assert len(template_calls) == 2
+        assert template_calls[0].get_header("Idempotency-key") == template_calls[1].get_header(
+            "Idempotency-key"
+        )
+
+        releases, release_calls = make_client([
+            {"status": 503, "body": {"error": "unavailable"}},
+        ])
+        with pytest.raises(SeatLayerError):
+            releases.events.update_ticket_releases(
+                "ev_1", [{"name": "Early", "price": 2500}]
+            )
+        assert len(release_calls) == 1
 
     def test_booking_mutations_are_single_attempt_even_with_a_supplied_key(self) -> None:
         sdk, calls = make_client([

@@ -47,6 +47,7 @@ class SeatLayer:
     def request(self, method: str, path: str, **kwargs: Any) -> Any:
         """Escape hatch for surface this SDK does not wrap yet.
 
-        Carries the same auth, retries, idempotency and error mapping.
+        Reads retain transient retries. Raw mutations are deliberately
+        single-attempt because their replay contract is unknown to the SDK.
         """
         return self._http.request(method, path, **kwargs)

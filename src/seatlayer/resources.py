@@ -7,9 +7,32 @@ call is named the same thing in every SeatLayer server SDK.
 from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
-from typing import Any
+from typing import Any, Literal, cast
 
 from .http import HttpClient, quote
+from .types import (
+    AccessLinkList,
+    AccessLinkReveal,
+    AccessLinkRevokeResult,
+    DesignerSafeModeOptionsInput,
+    DesignerSessionEnvelope,
+    EventLogPage,
+    HoldInspection,
+    ManageCapability,
+    ManageSession,
+    WebhookCreateEnvelope,
+    WebhookDeliveryPage,
+    WebhookEnvelope,
+    WebhookEventName,
+    WebhookList,
+)
+
+
+class _Unset:
+    """Distinguish an omitted nullable request field from explicit JSON null."""
+
+
+_UNSET = _Unset()
 
 
 class Charts:
@@ -85,7 +108,9 @@ class Charts:
             body["externalRef"] = external_ref
         if workspace_id is not None:
             body["workspaceId"] = workspace_id
-        return self._http.post("/v1/charts", body=body, idempotency_key=idempotency_key)
+        return self._http.post_with_header_replay(
+            "/v1/charts", body=body, idempotency_key=idempotency_key
+        )
 
     def retrieve(self, chart_id: str) -> Any:
         return self._http.get(f"/v1/charts/{quote(chart_id)}")
@@ -93,11 +118,13 @@ class Charts:
     def update(
         self,
         chart_id: str,
-        doc: dict[str, Any],
-        expected_updated_at: int,
+        doc: dict[str, Any] | None = None,
+        expected_updated_at: int | None = None,
         name: str | None = None,
+        issues: float | None = None,
+        external_ref: str | None | _Unset = _UNSET,
     ) -> Any:
-        """Replace a chart document.
+        """Replace a chart document or update chart metadata.
 
         ``expected_updated_at`` is required for optimistic concurrency and is not
         optional here either: without it two concurrent writers silently overwrite
@@ -107,18 +134,43 @@ class Charts:
         The Designer is the authoring surface. Use this for bulk programmatic edits
         and migrations, not for drawing.
         """
-        body: dict[str, Any] = {"doc": doc, "expectedUpdatedAt": expected_updated_at}
+        if (doc is None) != (expected_updated_at is None):
+            raise ValueError("doc and expected_updated_at must be supplied together")
+        body: dict[str, Any] = {}
+        if doc is not None:
+            body["doc"] = doc
+            body["expectedUpdatedAt"] = expected_updated_at
         if name is not None:
             body["name"] = name
+        if issues is not None:
+            body["issues"] = issues
+        if external_ref is not _UNSET:
+            body["externalRef"] = external_ref
         return self._http.put(f"/v1/charts/{quote(chart_id)}", body=body)
 
     def delete(self, chart_id: str) -> Any:
         return self._http.delete(f"/v1/charts/{quote(chart_id)}")
 
-    def copy(self, chart_id: str, idempotency_key: str | None = None) -> Any:
+    def copy(
+        self,
+        chart_id: str,
+        idempotency_key: str | None = None,
+        name: str | None = None,
+        external_ref: str | None | _Unset = _UNSET,
+        workspace_id: str | None = None,
+    ) -> Any:
         """Copy a chart — the usual way to provision a venue from a template."""
-        return self._http.post(
-            f"/v1/charts/{quote(chart_id)}/duplicate", idempotency_key=idempotency_key
+        body: dict[str, Any] = {}
+        if name is not None:
+            body["name"] = name
+        if external_ref is not _UNSET:
+            body["externalRef"] = external_ref
+        if workspace_id is not None:
+            body["workspaceId"] = workspace_id
+        return self._http.post_with_header_replay(
+            f"/v1/charts/{quote(chart_id)}/duplicate",
+            body=body or None,
+            idempotency_key=idempotency_key,
         )
 
     def archive(self, chart_id: str) -> Any:
@@ -186,24 +238,42 @@ class Events:
         chart_id: str,
         name: str | None = None,
         slug: str | None = None,
-        starts_at: int | None = None,
-        venue: str | None = None,
-        external_ref: str | None = None,
-        currency: str | None = None,
+        starts_at: int | None | _Unset = _UNSET,
+        venue: str | None | _Unset = _UNSET,
+        external_ref: str | None | _Unset = _UNSET,
+        currency: str | None | _Unset = _UNSET,
         idempotency_key: str | None = None,
+        description: str | None | _Unset = _UNSET,
+        ends_at: int | None | _Unset = _UNSET,
+        timezone: str | None | _Unset = _UNSET,
+        locale: str | None | _Unset = _UNSET,
+        poster_asset_id: str | None | _Unset = _UNSET,
+        mode: Literal["live", "test"] | None = None,
     ) -> Any:
         body: dict[str, Any] = {"chartId": chart_id}
         for key, value in (
             ("name", name),
             ("slug", slug),
+            ("mode", mode),
+        ):
+            if value is not None:
+                body[key] = value
+        for nullable_key, nullable_value in (
             ("startsAt", starts_at),
             ("venue", venue),
             ("externalRef", external_ref),
             ("currency", currency),
+            ("description", description),
+            ("endsAt", ends_at),
+            ("timezone", timezone),
+            ("locale", locale),
+            ("posterAssetId", poster_asset_id),
         ):
-            if value is not None:
-                body[key] = value
-        return self._http.post("/v1/events", body=body, idempotency_key=idempotency_key)
+            if nullable_value is not _UNSET:
+                body[nullable_key] = nullable_value
+        return self._http.post_with_header_replay(
+            "/v1/events", body=body, idempotency_key=idempotency_key
+        )
 
     def retrieve(self, event_key: str) -> Any:
         return self._http.get(f"/v1/events/{quote(event_key)}")
@@ -214,9 +284,35 @@ class Events:
     def delete(self, event_key: str) -> Any:
         return self._http.delete(f"/v1/events/{quote(event_key)}")
 
-    def update_chart(self, event_key: str) -> Any:
+    def update_poster(
+        self,
+        event_key: str,
+        image: bytes | bytearray | memoryview,
+        content_type: str = "application/octet-stream",
+    ) -> Any:
+        """Upload raw PNG, JPEG, or WebP bytes (maximum 5 MiB)."""
+        return self._http.put_raw(
+            f"/v1/events/{quote(event_key)}/poster", image, content_type
+        )
+
+    def delete_poster(self, event_key: str) -> Any:
+        return self._http.delete(f"/v1/events/{quote(event_key)}/poster")
+
+    def update_chart(
+        self,
+        event_key: str,
+        acknowledge_dropped_assignments: bool | None = None,
+        reason: str | None = None,
+    ) -> Any:
         """Move a live event onto the latest published version of its chart."""
-        return self._http.post(f"/v1/events/{quote(event_key)}/update-chart")
+        body: dict[str, Any] = {
+            "acknowledgeDroppedAssignments": acknowledge_dropped_assignments,
+            "reason": reason,
+        }
+        return self._http.post(
+            f"/v1/events/{quote(event_key)}/update-chart",
+            body={key: value for key, value in body.items() if value is not None},
+        )
 
     def close(self, event_key: str) -> Any:
         """Stop buyer sales. Existing holds keep their TTL."""
@@ -231,7 +327,8 @@ class Events:
     def retrieve_hold_ttl(self, event_key: str) -> Any:
         return self._http.get(f"/v1/events/{quote(event_key)}/hold-ttl")
 
-    def update_hold_ttl(self, event_key: str, hold_ttl_ms: int) -> Any:
+    def update_hold_ttl(self, event_key: str, hold_ttl_ms: int | None) -> Any:
+        """Set the checkout window, or pass ``None`` to restore the default."""
         return self._http.post(
             f"/v1/events/{quote(event_key)}/hold-ttl", body={"holdTtlMs": hold_ttl_ms}
         )
@@ -239,8 +336,19 @@ class Events:
     def retrieve_report(self, event_key: str) -> Any:
         return self._http.get(f"/v1/events/{quote(event_key)}/report")
 
-    def retrieve_log(self, event_key: str) -> Any:
-        return self._http.get(f"/v1/events/{quote(event_key)}/log")
+    def retrieve_log(
+        self,
+        event_key: str,
+        limit: int | None = None,
+        before: int | None = None,
+    ) -> EventLogPage:
+        return cast(
+            EventLogPage,
+            self._http.get(
+                f"/v1/events/{quote(event_key)}/log",
+                query={"limit": limit, "before": before},
+            ),
+        )
 
 
 class Inventory:
@@ -341,6 +449,9 @@ class Inventory:
         Prefer this over hold-then-book when payment is already taken: a failure
         between two calls would strand inventory until the TTL expired.
         """
+        booking_ref = booking_ref.strip()
+        if not booking_ref:
+            raise ValueError("booking_ref is required and must be a non-empty stable reference")
         body: dict[str, Any] = {"qty": qty, "bookingRef": booking_ref}
         for key, value in (
             ("categoryKey", category_key),
@@ -357,7 +468,15 @@ class Inventory:
             idempotency_key=idempotency_key,
         )
 
-    def extend_hold(self, event_key: str, hold_id: str, ttl_ms: int | None = None) -> Any:
+    def extend_hold(
+        self,
+        event_key: str,
+        hold_id: str,
+        ttl_ms: int | None = None,
+        channel_ids: list[str] | None = None,
+        ignore_channel_restrictions: bool | None = None,
+        reason: str | None = None,
+    ) -> Any:
         """Push an active hold's expiry out by a fresh window before it lapses.
 
         Use this rather than release-and-re-hold when an order is taking longer
@@ -367,13 +486,22 @@ class Inventory:
         409 ``cannot_extend``.
         """
         body: dict[str, Any] = {"holdId": hold_id}
-        if ttl_ms is not None:
-            body["ttlMs"] = ttl_ms
+        for key, value in (
+            ("ttlMs", ttl_ms),
+            ("channelIds", channel_ids),
+            ("ignoreChannelRestrictions", ignore_channel_restrictions),
+            ("reason", reason),
+        ):
+            if value is not None:
+                body[key] = value
         return self._http.post(self._path(event_key, "/extend"), body=body)
 
-    def retrieve_hold(self, event_key: str, hold_id: str) -> Any:
+    def retrieve_hold(self, event_key: str, hold_id: str) -> HoldInspection:
         """Authoritative items and prices. Charge from this, not the browser."""
-        return self._http.get(self._path(event_key, f"/holds/{quote(hold_id)}"))
+        return cast(
+            HoldInspection,
+            self._http.get(self._path(event_key, f"/holds/{quote(hold_id)}")),
+        )
 
     def release(self, event_key: str, labels: list[str], hold_id: str) -> Any:
         return self._http.post(
@@ -435,9 +563,17 @@ class Inventory:
             body={"labels": labels, "bookingRef": booking_ref},
         )
 
-    def block(self, event_key: str, labels: list[str]) -> Any:
+    def block(
+        self,
+        event_key: str,
+        labels: list[str],
+        release_at: int | None = None,
+    ) -> Any:
         """Hold inventory back from sale (house seats, production holds)."""
-        return self._http.post(self._path(event_key, "/block"), body={"labels": labels})
+        body: dict[str, Any] = {"labels": labels}
+        if release_at is not None:
+            body["releaseAt"] = release_at
+        return self._http.post(self._path(event_key, "/block"), body=body)
 
     def unblock(self, event_key: str, labels: list[str]) -> Any:
         return self._http.post(self._path(event_key, "/unblock"), body={"labels": labels})
@@ -615,42 +751,140 @@ class Channels:
         allowed_origin: str,
         channel_ids: list[str] | None = None,
         expires_in_seconds: int | None = None,
-        max_quantity: int | None = None,
-        buyer_ref: str | None = None,
-        partner_ref: str | None = None,
-        client_request_id: str | None = None,
+        max_quantity: int | None | _Unset = _UNSET,
+        buyer_ref: str | None | _Unset = _UNSET,
+        partner_ref: str | None | _Unset = _UNSET,
+        client_request_id: str | None | _Unset = _UNSET,
         idempotency_key: str | None = None,
     ) -> Any:
-        return self._http.post(
-            f"/v1/events/{quote(event_key)}/buyer-access-sessions",
-            body={key: value for key, value in {
+        body: dict[str, Any] = {
+            key: value
+            for key, value in {
                 "channelIds": channel_ids,
                 "includePublic": include_public,
                 "allowedOrigin": allowed_origin,
                 "expiresInSeconds": expires_in_seconds,
-                "maxQuantity": max_quantity,
-                "buyerRef": buyer_ref,
-                "partnerRef": partner_ref,
-                "clientRequestId": client_request_id,
-            }.items() if value is not None},
+            }.items()
+            if value is not None
+        }
+        for key, value in (
+            ("maxQuantity", max_quantity),
+            ("buyerRef", buyer_ref),
+            ("partnerRef", partner_ref),
+            ("clientRequestId", client_request_id),
+        ):
+            if value is not _UNSET:
+                body[key] = value
+        return self._http.post(
+            f"/v1/events/{quote(event_key)}/buyer-access-sessions",
+            body=body,
             idempotency_key=idempotency_key,
         )
 
     def list_buyer_access_sessions(
         self,
         event_key: str,
-        state: str | None = None,
         limit: int | None = None,
-        cursor: str | None = None,
     ) -> Any:
         return self._http.get(
             f"/v1/events/{quote(event_key)}/buyer-access-sessions",
-            query={"state": state, "limit": limit, "cursor": cursor},
+            query={"limit": limit},
         )
 
     def revoke_buyer_access_session(self, event_key: str, session_id: str) -> Any:
         return self._http.delete(
             f"/v1/events/{quote(event_key)}/buyer-access-sessions/{quote(session_id)}"
+        )
+
+    def create_access_link(
+        self,
+        event_key: str,
+        channel_id: str,
+        label: str | None | _Unset = _UNSET,
+        expires_at: int | None = None,
+        max_redemptions: int | None = None,
+        max_quantity: int | None = None,
+        session_ttl_seconds: int | None = None,
+        include_public: bool | None = None,
+        reason: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> AccessLinkReveal:
+        """Create a hosted link; its URL and capability are revealed only once."""
+        body: dict[str, Any] = {}
+        if label is not _UNSET:
+            body["label"] = label
+        for key, value in (
+            ("expiresAt", expires_at),
+            ("maxRedemptions", max_redemptions),
+            ("maxQuantity", max_quantity),
+            ("sessionTtlSeconds", session_ttl_seconds),
+            ("includePublic", include_public),
+            ("reason", reason),
+        ):
+            if value is not None:
+                body[key] = value
+        return cast(
+            AccessLinkReveal,
+            self._http.post(
+                self._path(event_key, f"/{quote(channel_id)}/access-links"),
+                body=body,
+                idempotency_key=idempotency_key,
+            ),
+        )
+
+    def list_access_links(
+        self, event_key: str, channel_id: str
+    ) -> AccessLinkList:
+        """List link status; one-time capabilities are never returned here."""
+        return cast(
+            AccessLinkList,
+            self._http.get(
+                self._path(event_key, f"/{quote(channel_id)}/access-links")
+            ),
+        )
+
+    def rotate_access_link(
+        self,
+        event_key: str,
+        channel_id: str,
+        link_id: str,
+        end_active_sessions: bool,
+        reason: str | None = None,
+    ) -> AccessLinkReveal:
+        body: dict[str, Any] = {"endActiveSessions": end_active_sessions}
+        if reason is not None:
+            body["reason"] = reason
+        return cast(
+            AccessLinkReveal,
+            self._http.post(
+                self._path(
+                    event_key,
+                    f"/{quote(channel_id)}/access-links/{quote(link_id)}/rotate",
+                ),
+                body=body,
+            ),
+        )
+
+    def revoke_access_link(
+        self,
+        event_key: str,
+        channel_id: str,
+        link_id: str,
+        end_active_sessions: bool = False,
+        reason: str | None = None,
+    ) -> AccessLinkRevokeResult:
+        query = {
+            "endActiveSessions": "1" if end_active_sessions else None,
+            "reason": reason,
+        }
+        return cast(
+            AccessLinkRevokeResult,
+            self._http.delete(
+                self._path(
+                    event_key, f"/{quote(channel_id)}/access-links/{quote(link_id)}"
+                ),
+                query=query,
+            ),
         )
 
 
@@ -668,29 +902,33 @@ class Sessions:
         self,
         event_key: str,
         allowed_origin: str,
-        capabilities: list[str],
+        capabilities: Sequence[ManageCapability],
         expires_in_seconds: int | None = None,
-    ) -> Any:
+        workspace_id: str | None = None,
+    ) -> ManageSession:
         """Mint a manage-session token for the control room.
 
-        ``capabilities`` is required here even though the API defaults it. That
-        default grants all four — including ``event:cancel``, which un-books paid
-        inventory. Granting the ability to reverse sales by forgetting an argument
-        is not a default worth inheriting.
+        The raw API defaults an omitted list to view-only (``event:view``). This
+        SDK still requires an explicit set so browser authority remains visible
+        at every call site.
         """
         if not capabilities:
             raise ValueError(
                 "capabilities is required: pass the smallest set the page needs, "
-                'e.g. ["event:view"]. Omitting it server-side grants event:cancel, '
-                "which can reverse paid bookings."
+                'e.g. ["event:view"].'
             )
         body: dict[str, Any] = {
             "allowedOrigin": allowed_origin,
-            "capabilities": capabilities,
+            "capabilities": list(capabilities),
         }
         if expires_in_seconds is not None:
             body["expiresInSeconds"] = expires_in_seconds
-        return self._http.post(f"/v1/events/{quote(event_key)}/manage-sessions", body=body)
+        if workspace_id is not None:
+            body["workspaceId"] = workspace_id
+        return cast(
+            ManageSession,
+            self._http.post(f"/v1/events/{quote(event_key)}/manage-sessions", body=body),
+        )
 
     def revoke_manage_session(self, event_key: str, session_id: str) -> Any:
         return self._http.delete(
@@ -702,10 +940,13 @@ class Sessions:
         workspace_id: str,
         chart_id: str,
         allowed_origin: str,
-        authority: str | None = None,
-        mode: str | None = None,
+        authority: Literal["read-only", "edit", "publish"] | None = None,
+        can_publish: bool | None = None,
+        mode: Literal["normal", "safe"] | None = None,
+        safe_mode_options: DesignerSafeModeOptionsInput | None = None,
+        features: dict[str, Any] | None = None,
         expires_in_seconds: int | None = None,
-    ) -> Any:
+    ) -> DesignerSessionEnvelope:
         """Mint a designer token so an organiser can edit a chart inside your UI.
 
         Requires a chart id that already exists — create or copy one first.
@@ -717,37 +958,100 @@ class Sessions:
         }
         for key, value in (
             ("authority", authority),
+            ("canPublish", can_publish),
             ("mode", mode),
+            ("safeModeOptions", safe_mode_options),
+            ("features", features),
             ("expiresInSeconds", expires_in_seconds),
         ):
             if value is not None:
                 body[key] = value
-        return self._http.post("/v1/designer/sessions", body=body)
+        return cast(
+            DesignerSessionEnvelope,
+            self._http.post("/v1/designer/sessions", body=body),
+        )
 
     def revoke_designer_session(self, session_id: str) -> Any:
         return self._http.delete(f"/v1/designer/sessions/{quote(session_id)}")
 
 
 class Webhooks:
+    _EVENT_NAMES = frozenset({
+        "seat.booked",
+        "seat.released",
+        "seat.blocked",
+        "hold.expired",
+        "hold.created",
+        "hold.extended",
+        "event.created",
+        "event.soldout",
+    })
+
     def __init__(self, http: HttpClient) -> None:
         self._http = http
 
-    def list(self) -> Any:
-        return self._http.get("/v1/webhooks")
+    def list(self) -> WebhookList:
+        return cast(WebhookList, self._http.get("/v1/webhooks"))
 
     # `Sequence[str]`, not `list[str]`: this class defines a `list` method, which
     # shadows the builtin when the annotation is resolved in class scope.
-    def create(self, url: str, events: Sequence[str]) -> Any:
-        return self._http.post("/v1/webhooks", body={"url": url, "events": list(events)})
+    def create(
+        self,
+        url: str,
+        events: Sequence[WebhookEventName],
+    ) -> WebhookCreateEnvelope:
+        self._validate_events(events)
+        return cast(
+            WebhookCreateEnvelope,
+            self._http.post("/v1/webhooks", body={"url": url, "events": list(events)}),
+        )
 
-    def update(self, webhook_id: str, **fields: Any) -> Any:
-        return self._http.patch(f"/v1/webhooks/{quote(webhook_id)}", body=fields)
+    def update(
+        self,
+        webhook_id: str,
+        url: str | None = None,
+        events: Sequence[WebhookEventName] | None = None,
+        disabled: bool | None = None,
+    ) -> WebhookEnvelope:
+        body: dict[str, Any] = {"url": url, "disabled": disabled}
+        if events is not None:
+            self._validate_events(events)
+            body["events"] = list(events)
+        return cast(
+            WebhookEnvelope,
+            self._http.patch(
+                f"/v1/webhooks/{quote(webhook_id)}",
+                body={key: value for key, value in body.items() if value is not None},
+            ),
+        )
 
     def delete(self, webhook_id: str) -> Any:
         return self._http.delete(f"/v1/webhooks/{quote(webhook_id)}")
 
-    def list_deliveries(self, webhook_id: str) -> Any:
-        return self._http.get(f"/v1/webhooks/{quote(webhook_id)}/deliveries")
+    def list_deliveries(
+        self,
+        webhook_id: str,
+        limit: int | None = None,
+        status: Literal["ok", "failed"] | None = None,
+        before: int | None = None,
+    ) -> WebhookDeliveryPage:
+        if status is not None and status not in ("ok", "failed"):
+            raise ValueError("status must be 'ok' or 'failed'")
+        return cast(
+            WebhookDeliveryPage,
+            self._http.get(
+                f"/v1/webhooks/{quote(webhook_id)}/deliveries",
+                query={"limit": limit, "status": status, "before": before},
+            ),
+        )
+
+    @classmethod
+    def _validate_events(cls, events: Sequence[WebhookEventName]) -> None:
+        unknown = set(events) - cls._EVENT_NAMES
+        if not events or unknown:
+            raise ValueError(
+                "events must contain only supported SeatLayer webhook event names"
+            )
 
 
 class Workspaces:
@@ -762,13 +1066,15 @@ class Workspaces:
     def create(
         self,
         name: str,
-        external_ref: str | None = None,
+        external_ref: str | None | _Unset = _UNSET,
         idempotency_key: str | None = None,
     ) -> Any:
         body: dict[str, Any] = {"name": name}
-        if external_ref is not None:
+        if external_ref is not _UNSET:
             body["externalRef"] = external_ref
-        return self._http.post("/v1/workspaces", body=body, idempotency_key=idempotency_key)
+        return self._http.post_with_header_replay(
+            "/v1/workspaces", body=body, idempotency_key=idempotency_key
+        )
 
     def retrieve(self, workspace_id: str) -> Any:
         return self._http.get(f"/v1/workspaces/{quote(workspace_id)}")

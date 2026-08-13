@@ -38,16 +38,6 @@ def assert_valid_idempotency_key(key: str) -> None:
         )
 
 
-def _should_send_idempotency_key(method: str) -> bool:
-    """Every mutation carries one.
-
-    A retried POST that creates a second hold is worse than a failed POST, and the
-    caller cannot tell the difference from outside — so the SDK, which knows it
-    retried, is the right place to guarantee it.
-    """
-    return method not in ("GET", "HEAD")
-
-
 def _is_retryable_status(status: int) -> bool:
     """Retry only what is safe to retry.
 
@@ -111,8 +101,57 @@ class HttpClient:
         path: str,
         query: dict[str, Any] | None = None,
         body: Any = None,
+        raw_body: bytes | bytearray | memoryview | None = None,
+        content_type: str | None = None,
         idempotency_key: str | None = None,
     ) -> Any:
+        """Send a raw request.
+
+        Reads retain transient retries. Raw mutations are always single-attempt
+        because the SDK cannot prove that an unknown operation supports replay.
+        """
+        return self._request(
+            method,
+            path,
+            query=query,
+            body=body,
+            raw_body=raw_body,
+            content_type=content_type,
+            idempotency_key=idempotency_key,
+            header_replay=False,
+        )
+
+    def post_with_header_replay(
+        self,
+        path: str,
+        query: dict[str, Any] | None = None,
+        body: Any = None,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        """Internal typed-operation path for mutations backed by exact replay."""
+        return self._request(
+            "POST",
+            path,
+            query=query,
+            body=body,
+            raw_body=None,
+            content_type=None,
+            idempotency_key=idempotency_key,
+            header_replay=True,
+        )
+
+    def _request(
+        self,
+        method: str,
+        path: str,
+        query: dict[str, Any] | None,
+        body: Any,
+        raw_body: bytes | bytearray | memoryview | None,
+        content_type: str | None,
+        idempotency_key: str | None,
+        header_replay: bool,
+    ) -> Any:
+        method = method.upper()
         url = self.base_url + path
         if query:
             filtered = {k: v for k, v in query.items() if v is not None}
@@ -124,20 +163,28 @@ class HttpClient:
             "Accept": "application/json",
             "User-Agent": USER_AGENT,
         }
+        if body is not None and raw_body is not None:
+            raise ValueError("body and raw_body are mutually exclusive")
         payload = None
-        if body is not None:
+        if raw_body is not None:
+            payload = bytes(raw_body)
+            headers["Content-Type"] = content_type or "application/octet-stream"
+        elif body is not None:
             payload = json.dumps(body).encode("utf-8")
             headers["Content-Type"] = "application/json"
 
-        if _should_send_idempotency_key(method):
+        is_read = method in ("GET", "HEAD")
+        if header_replay or (not is_read and idempotency_key is not None):
             key = idempotency_key or str(uuid.uuid4())
             assert_valid_idempotency_key(key)
-            # Deliberately stable across retries: that is the point — the server
-            # collapses the duplicates.
+            # Generated once before the loop, so every safe retry reuses one key.
             headers["Idempotency-Key"] = key
 
+        # Reads are safe by HTTP semantics. Mutations are single-attempt unless a
+        # typed resource opted into the server's exact header-replay contract.
+        total_attempts = self._max_retries if is_read or header_replay else 1
         last_error: Exception | None = None
-        for attempt in range(self._max_retries):
+        for attempt in range(total_attempts):
             request = urllib.request.Request(url, data=payload, headers=headers, method=method)
             try:
                 with self._transport(request, self._timeout) as response:
@@ -160,7 +207,7 @@ class HttpClient:
                 # silently take the non-retryable branch, so pin it to a real code.
                 status = http_error.status if http_error.status is not None else 500
 
-                if _is_retryable_status(status) and attempt < self._max_retries - 1:
+                if _is_retryable_status(status) and attempt < total_attempts - 1:
                     time.sleep(_backoff_seconds(attempt, retry_after if status == 429 else None))
                     continue
 
@@ -169,7 +216,7 @@ class HttpClient:
                 last_error = SeatLayerConnectionError(
                     f"Request to {method} {path} failed: {cause}"
                 )
-                if attempt < self._max_retries - 1:
+                if attempt < total_attempts - 1:
                     time.sleep(_backoff_seconds(attempt, None))
                     continue
                 raise last_error from cause
@@ -184,6 +231,16 @@ class HttpClient:
 
     def put(self, path: str, **kwargs: Any) -> Any:
         return self.request("PUT", path, **kwargs)
+
+    def put_raw(
+        self,
+        path: str,
+        raw_body: bytes | bytearray | memoryview,
+        content_type: str = "application/octet-stream",
+    ) -> Any:
+        return self.request(
+            "PUT", path, raw_body=raw_body, content_type=content_type
+        )
 
     def patch(self, path: str, **kwargs: Any) -> Any:
         return self.request("PATCH", path, **kwargs)

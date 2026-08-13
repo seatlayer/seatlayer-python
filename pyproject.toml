@@ -8,7 +8,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "seatlayer"
-version = "0.2.0"
+version = "0.3.0"
 description = "Official Python server SDK for the SeatLayer reserved-seating API."
 readme = "README.md"
 license = "MIT"

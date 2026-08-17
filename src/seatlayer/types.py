@@ -30,6 +30,56 @@ ManageCapability = Literal[
     "event:boxoffice",
 ]
 
+TicketReleaseAction = Literal["buy", "apply", "invoice"]
+
+
+class TemplateInstantiateRequest(TypedDict, total=False):
+    name: str
+    workspaceId: str
+    editedDoc: dict[str, Any]
+    version: int
+    sha256: str
+
+
+class _TicketReleaseOptional(TypedDict, total=False):
+    consumed: int
+    remaining: int | None
+
+
+class TicketRelease(_TicketReleaseOptional):
+    id: str
+    position: int
+    name: str
+    categoryKey: str | None
+    price: int
+    previousPrice: int | None
+    quota: int | None
+    startsAt: int | None
+    endsAt: int | None
+    action: TicketReleaseAction
+    actionUrl: str | None
+    soldOutAt: int | None
+
+
+class _TicketReleaseReplaceOptional(TypedDict, total=False):
+    id: str | None
+    categoryKey: str | None
+    previousPrice: int | None
+    quota: int | None
+    startsAt: int | None
+    endsAt: int | None
+    action: TicketReleaseAction
+    actionUrl: str | None
+
+
+class TicketReleaseReplaceInput(_TicketReleaseReplaceOptional):
+    name: str
+    price: int
+
+
+class TicketReleaseList(TypedDict):
+    releases: list[TicketRelease]
+
 
 class _InventoryItemOptional(TypedDict, total=False):
     quantity: int

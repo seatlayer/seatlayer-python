@@ -2,8 +2,14 @@
 
 ## Unreleased
 
+- Added the public template-instantiation resource and ticket-release list, replace, and close
+  operations. Template instantiation uses exact header replay; ticket-release mutations remain
+  deliberately single-attempt.
+- Prepared the additive `0.4.0` package version and replaced the obsolete chart-copy template
+  quick start with the public template catalog flow.
+
 - **Security/reliability:** Mutations now default to a single attempt. Automatic header-replay
-  retries are limited to chart create/copy, event create, and workspace create, preventing
+  retries are limited to chart create/copy, template instantiation, event create, and workspace create, preventing
   transient failures from duplicating holds or best-available results and from issuing extra
   show-once credentials.
 - Aligned event, inventory, webhook, manage-session, and Designer requests with the generated

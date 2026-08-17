@@ -20,6 +20,9 @@ from .types import (
     HoldInspection,
     ManageCapability,
     ManageSession,
+    TemplateInstantiateRequest,
+    TicketReleaseList,
+    TicketReleaseReplaceInput,
     WebhookCreateEnvelope,
     WebhookDeliveryPage,
     WebhookEnvelope,
@@ -184,6 +187,42 @@ class Charts:
         return self._http.post(f"/v1/charts/{quote(chart_id)}/publish")
 
 
+class Templates:
+    """Versioned catalog templates that can be instantiated as draft charts."""
+
+    def __init__(self, http: HttpClient) -> None:
+        self._http = http
+
+    def instantiate_template(
+        self,
+        template_id: str,
+        *,
+        name: str | None = None,
+        workspace_id: str | None = None,
+        edited_doc: dict[str, Any] | None = None,
+        version: int | None = None,
+        sha256: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        """Create a draft chart from a catalog template using exact header replay."""
+        body: TemplateInstantiateRequest = {}
+        if name is not None:
+            body["name"] = name
+        if workspace_id is not None:
+            body["workspaceId"] = workspace_id
+        if edited_doc is not None:
+            body["editedDoc"] = edited_doc
+        if version is not None:
+            body["version"] = version
+        if sha256 is not None:
+            body["sha256"] = sha256
+        return self._http.post_with_header_replay(
+            f"/v1/templates/{quote(template_id)}/instantiate",
+            body=body,
+            idempotency_key=idempotency_key,
+        )
+
+
 class Events:
     def __init__(self, http: HttpClient) -> None:
         self._http = http
@@ -323,6 +362,33 @@ class Events:
 
     def archive(self, event_key: str) -> Any:
         return self._http.post(f"/v1/events/{quote(event_key)}/archive")
+
+    def list_ticket_releases(self, event_key: str) -> TicketReleaseList:
+        return cast(
+            TicketReleaseList,
+            self._http.get(f"/v1/events/{quote(event_key)}/releases"),
+        )
+
+    def update_ticket_releases(
+        self,
+        event_key: str,
+        releases: Sequence[TicketReleaseReplaceInput],
+    ) -> TicketReleaseList:
+        return cast(
+            TicketReleaseList,
+            self._http.put(
+                f"/v1/events/{quote(event_key)}/releases",
+                body={"releases": list(releases)},
+            ),
+        )
+
+    def close_ticket_release(self, event_key: str, release_id: str) -> TicketReleaseList:
+        return cast(
+            TicketReleaseList,
+            self._http.post(
+                f"/v1/events/{quote(event_key)}/releases/{quote(release_id)}/close"
+            ),
+        )
 
     def retrieve_hold_ttl(self, event_key: str) -> Any:
         return self._http.get(f"/v1/events/{quote(event_key)}/hold-ttl")

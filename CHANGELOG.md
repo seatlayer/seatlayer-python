@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.5.0 — 2026-08-21
+
+- Added `performance_groups`, the trusted server resource for fixed two-to-eight
+  performance runs. It creates and activates groups, mints one-time browser
+  access, retrieves authoritative group holds, and confirms bookings with
+  stable action and order references. Browser-only group routes remain outside
+  this secret-key SDK.
+
 - Added the public template-instantiation resource and ticket-release list, replace, and close
   operations. Template instantiation uses exact header replay; ticket-release mutations remain
   deliberately single-attempt.

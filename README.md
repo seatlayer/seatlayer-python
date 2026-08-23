@@ -283,7 +283,7 @@ seatlayer.request("POST", "/v1/events/ev_1/some-new-route", body={...})
 | --- | --- |
 | `charts` | `list` `list_all` `create` `retrieve` `update` `delete` `copy` `archive` `unarchive` `publish` |
 | `templates` | `instantiate_template` |
-| `events` | `list` `list_all` `create` `retrieve` `update` `delete` `update_poster` `delete_poster` `update_chart` `close` `reopen` `archive` `list_ticket_releases` `update_ticket_releases` `close_ticket_release` `retrieve_hold_ttl` `update_hold_ttl` `retrieve_report` `retrieve_log` |
+| `events` | `list` `list_all` `create` `retrieve` `retrieve_configuration_binding` `update_configuration_binding` `update` `delete` `update_poster` `delete_poster` `update_chart` `close` `reopen` `archive` `list_ticket_releases` `update_ticket_releases` `close_ticket_release` `retrieve_hold_ttl` `update_hold_ttl` `retrieve_report` `retrieve_log` |
 | `inventory` | `hold` `hold_best_available` `book_best_available` `extend_hold` `retrieve_hold` `release` `book` `box_office_book` `unbook` `list_bookings` `retrieve_booking` `block` `unblock` `unblock_all` `retrieve_availability` `update_availability` |
 | `channels` | `list_channels` `create_channel` `update_channel` `update_assignments` `list_allocation` `retrieve_access_preview` `retrieve_report` `pause` `unpause` `archive` `create_buyer_access_session` `list_buyer_access_sessions` `revoke_buyer_access_session` `create_access_link` `list_access_links` `rotate_access_link` `revoke_access_link` |
 | `sessions` | `create_manage_session` `revoke_manage_session` `create_designer_session` `revoke_designer_session` |

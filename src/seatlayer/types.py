@@ -81,6 +81,36 @@ class TicketReleaseList(TypedDict):
     releases: list[TicketRelease]
 
 
+class EventConfigurationRef(TypedDict):
+    """Exact immutable Event configuration version."""
+
+    id: str
+    version: int
+
+
+EventConfigurationBindingAudit = TypedDict(
+    "EventConfigurationBindingAudit",
+    {
+        "id": str,
+        "from": EventConfigurationRef | None,
+        "to": EventConfigurationRef | None,
+        "revision": int,
+        "actor": str,
+        "createdAt": int,
+    },
+)
+
+
+class EventConfigurationBinding(TypedDict):
+    """Current exact binding and its complete audit history."""
+
+    configuration: EventConfigurationRef | None
+    revision: int
+    changedBy: str | None
+    changedAt: int | None
+    audit: list[EventConfigurationBindingAudit]
+
+
 class _InventoryItemOptional(TypedDict, total=False):
     quantity: int
     bookingMode: Literal["individual", "whole", "variable"]

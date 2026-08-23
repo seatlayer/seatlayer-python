@@ -106,6 +106,47 @@ class TestRequests:
         sdk.events.retrieve("ev/../admin")
         assert calls[0].full_url == "https://api.seatlayer.io/v1/events/ev%2F..%2Fadmin"
 
+    def test_event_configuration_binding_wire_contract(self) -> None:
+        binding = {
+            "configuration": {"id": "ec_touring", "version": 3},
+            "revision": 7,
+            "changedBy": "api-key:key_1",
+            "changedAt": 123,
+            "audit": [{
+                "id": "eca_1", "from": None,
+                "to": {"id": "ec_touring", "version": 3},
+                "revision": 7, "actor": "api-key:key_1", "createdAt": 123,
+            }],
+        }
+        sdk, calls = make_client([
+            {"status": 200, "body": binding},
+            {"status": 200, "body": binding},
+            {"status": 200, "body": {**binding, "configuration": None, "revision": 8}},
+        ])
+
+        retrieved = sdk.events.retrieve_configuration_binding("ev / main")
+        assert retrieved["audit"][0]["to"] == {"id": "ec_touring", "version": 3}
+        sdk.events.update_configuration_binding(
+            "ev / main", 6, {"id": "ec_touring", "version": 3}
+        )
+        sdk.events.update_configuration_binding("ev / main", 7, None)
+
+        expected_url = (
+            "https://api.seatlayer.io/v1/events/ev%20%2F%20main/event-configuration"
+        )
+        assert [call.full_url for call in calls] == [expected_url, expected_url, expected_url]
+        assert calls[0].method == "GET"
+        assert json.loads(calls[1].data) == {
+            "expectedRevision": 6,
+            "configuration": {"id": "ec_touring", "version": 3},
+        }
+        assert json.loads(calls[2].data) == {
+            "expectedRevision": 7,
+            "configuration": None,
+        }
+        assert calls[1].get_header("Idempotency-key") is None
+        assert calls[2].get_header("Idempotency-key") is None
+
     def test_generated_idempotency_key_only_on_header_replay_mutations(self) -> None:
         sdk, calls = make_client([
             {"status": 200, "body": {}},

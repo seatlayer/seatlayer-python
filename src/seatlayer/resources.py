@@ -16,6 +16,8 @@ from .types import (
     AccessLinkRevokeResult,
     DesignerSafeModeOptionsInput,
     DesignerSessionEnvelope,
+    EventConfigurationBinding,
+    EventConfigurationRef,
     EventLogPage,
     HoldInspection,
     ManageCapability,
@@ -316,6 +318,37 @@ class Events:
 
     def retrieve(self, event_key: str) -> Any:
         return self._http.get(f"/v1/events/{quote(event_key)}")
+
+    def retrieve_configuration_binding(self, event_key: str) -> EventConfigurationBinding:
+        """Read the Event's exact immutable configuration binding and audit history."""
+        return cast(
+            EventConfigurationBinding,
+            self._http.get(
+                f"/v1/events/{quote(event_key)}/event-configuration"
+            ),
+        )
+
+    def update_configuration_binding(
+        self,
+        event_key: str,
+        expected_revision: int,
+        configuration: EventConfigurationRef | None,
+    ) -> EventConfigurationBinding:
+        """Bind an exact published version, or pass ``None`` to detach.
+
+        This compare-and-set mutation stays single-attempt because the public
+        operation does not promise exact response replay.
+        """
+        return cast(
+            EventConfigurationBinding,
+            self._http.put(
+                f"/v1/events/{quote(event_key)}/event-configuration",
+                body={
+                    "expectedRevision": expected_revision,
+                    "configuration": configuration,
+                },
+            ),
+        )
 
     def update(self, event_key: str, **fields: Any) -> Any:
         return self._http.patch(f"/v1/events/{quote(event_key)}", body=fields)

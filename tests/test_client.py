@@ -215,6 +215,62 @@ class TestRequests:
         sdk.charts.list(workspace_id="ws_1")
         assert calls[0].full_url == "https://api.seatlayer.io/v1/charts?workspaceId=ws_1"
 
+    def test_maps_the_full_performance_group_lifecycle(self) -> None:
+        sdk, calls = make_client([
+            {"status": 200, "body": {"performanceGroups": [], "nextCursor": None}},
+            {"status": 201, "body": {"performanceGroup": {}}},
+            {"status": 200, "body": {"performanceGroup": {}}},
+            {"status": 204, "body": None},
+            {"status": 202, "body": {"lifecycleOperation": {"terminal": False}}},
+            {"status": 200, "body": {"lifecycleOperation": {"terminal": True}}},
+            {"status": 200, "body": {"lifecycleOperation": {}}},
+            {"status": 201, "body": {"token": "bsg_secret"}},
+            {"status": 200, "body": {"sessions": []}},
+            {"status": 200, "body": {"ok": True}},
+            {"status": 200, "body": {"hold": {}}},
+            {"status": 202, "body": {"booking": {"state": "book_pending"}}},
+            {"status": 200, "body": {"booking": {"state": "booked"}}},
+        ])
+        group_key = "pg_a/b"
+
+        sdk.performance_groups.list(workspace_id="ws_1", state="draft")
+        sdk.performance_groups.create(
+            "Weekend run", ["ev_1", "ev_2"], idempotency_key="weekend-run-1"
+        )
+        sdk.performance_groups.retrieve(group_key)
+        assert sdk.performance_groups.delete(group_key) is None
+        sdk.performance_groups.activate(group_key, 1)
+        sdk.performance_groups.close(group_key, 2)
+        sdk.performance_groups.retrieve_lifecycle(group_key, "pga_1")
+        sdk.performance_groups.create_buyer_access_session(
+            group_key, "https://tickets.example.test", True
+        )
+        sdk.performance_groups.list_buyer_access_sessions(group_key, limit=25)
+        sdk.performance_groups.revoke_buyer_access_session(group_key, "pgbs_1")
+        sdk.performance_groups.retrieve_hold(group_key, "pgh_1")
+        sdk.performance_groups.book_hold(group_key, "pgh_1", "book_1", "order_1")
+        sdk.performance_groups.retrieve_booking(group_key, "book_1")
+
+        base = "https://api.seatlayer.io/v1/performance-groups/pg_a%2Fb"
+        assert calls[0].full_url == (
+            "https://api.seatlayer.io/v1/performance-groups?workspaceId=ws_1&state=draft"
+        )
+        assert calls[1].full_url.endswith("/v1/performance-groups")
+        assert calls[1].get_header("Idempotency-key") == "weekend-run-1"
+        assert calls[2].full_url == base
+        assert calls[3].method == "DELETE"
+        assert calls[4].full_url == f"{base}/activate"
+        assert calls[5].full_url == f"{base}/close"
+        assert calls[6].full_url == f"{base}/lifecycle/pga_1"
+        assert calls[7].full_url == f"{base}/buyer-access-sessions"
+        assert calls[7].get_header("Idempotency-key") is None
+        assert calls[8].full_url == f"{base}/buyer-access-sessions?limit=25"
+        assert calls[9].full_url == f"{base}/buyer-access-sessions/pgbs_1"
+        assert calls[10].full_url == f"{base}/holds/pgh_1"
+        assert calls[11].full_url == f"{base}/holds/pgh_1/book"
+        assert calls[11].get_header("Idempotency-key") is None
+        assert calls[12].full_url == f"{base}/bookings/book_1"
+
 
 class TestErrors:
     @pytest.mark.parametrize(

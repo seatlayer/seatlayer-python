@@ -1185,3 +1185,144 @@ class Workspaces:
         409 ``default_workspace_required``. Promote another one first.
         """
         return self._http.patch(f"/v1/workspaces/{quote(workspace_id)}", body=fields)
+
+
+class PerformanceGroups:
+    """Fixed multi-performance runs, kept entirely on your trusted server.
+
+    Mint the one-time browser bearer here, then give it to
+    ``PerformanceGroupPicker`` in the browser SDK. Lifecycle and booking calls
+    remain secret-key operations because they coordinate inventory across every
+    performance in the run.
+    """
+
+    def __init__(self, http: HttpClient) -> None:
+        self._http = http
+
+    @staticmethod
+    def _path(performance_group_key: str, suffix: str = "") -> str:
+        return f"/v1/performance-groups/{quote(performance_group_key)}{suffix}"
+
+    def list(
+        self,
+        workspace_id: str | None = None,
+        external_ref: str | None = None,
+        state: Literal["draft", "active", "closing", "closed", "archived"] | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+    ) -> Any:
+        return self._http.get("/v1/performance-groups", query={
+            "workspaceId": workspace_id,
+            "externalRef": external_ref,
+            "state": state,
+            "limit": limit,
+            "cursor": cursor,
+        })
+
+    def create(
+        self,
+        name: str,
+        event_keys: Sequence[str],
+        external_ref: str | None | _Unset = _UNSET,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        """Create a draft run with exact idempotency replay."""
+        body: dict[str, Any] = {"name": name, "eventKeys": list(event_keys)}
+        if external_ref is not _UNSET:
+            body["externalRef"] = external_ref
+        return self._http.post_with_header_replay(
+            "/v1/performance-groups", body=body, idempotency_key=idempotency_key
+        )
+
+    def retrieve(self, performance_group_key: str) -> Any:
+        return self._http.get(self._path(performance_group_key))
+
+    def delete(self, performance_group_key: str) -> None:
+        """Delete a draft only. Activated runs remain available for audit."""
+        self._http.delete(self._path(performance_group_key))
+
+    def activate(self, performance_group_key: str, expected_revision: int) -> Any:
+        """Start activation; poll ``retrieve_lifecycle`` if it is not terminal."""
+        return self._http.post(
+            self._path(performance_group_key, "/activate"),
+            body={"expectedRevision": expected_revision},
+        )
+
+    def close(self, performance_group_key: str, expected_revision: int) -> Any:
+        """Stop new sales; poll the returned lifecycle operation until terminal."""
+        return self._http.post(
+            self._path(performance_group_key, "/close"),
+            body={"expectedRevision": expected_revision},
+        )
+
+    def retrieve_lifecycle(self, performance_group_key: str, operation_id: str) -> Any:
+        return self._http.get(
+            self._path(performance_group_key, f"/lifecycle/{quote(operation_id)}")
+        )
+
+    def create_buyer_access_session(
+        self,
+        performance_group_key: str,
+        allowed_origin: str,
+        include_public: bool,
+        channel_ids_by_event: dict[str, Sequence[str]] | None = None,
+        expires_in_seconds: int | None = None,
+        max_quantity: int | None = None,
+        buyer_ref: str | None = None,
+        partner_ref: str | None = None,
+    ) -> Any:
+        """Reveal one browser token. Never retry this call automatically."""
+        body: dict[str, Any] = {
+            "allowedOrigin": allowed_origin,
+            "includePublic": include_public,
+        }
+        for key, value in (
+            ("channelIdsByEvent", channel_ids_by_event),
+            ("expiresInSeconds", expires_in_seconds),
+            ("maxQuantity", max_quantity),
+            ("buyerRef", buyer_ref),
+            ("partnerRef", partner_ref),
+        ):
+            if value is not None:
+                body[key] = value
+        return self._http.post(
+            self._path(performance_group_key, "/buyer-access-sessions"), body=body
+        )
+
+    def list_buyer_access_sessions(
+        self, performance_group_key: str, limit: int | None = None
+    ) -> Any:
+        return self._http.get(
+            self._path(performance_group_key, "/buyer-access-sessions"),
+            query={"limit": limit},
+        )
+
+    def revoke_buyer_access_session(
+        self, performance_group_key: str, session_id: str
+    ) -> Any:
+        return self._http.delete(
+            self._path(performance_group_key, f"/buyer-access-sessions/{quote(session_id)}")
+        )
+
+    def retrieve_hold(self, performance_group_key: str, operation_id: str) -> Any:
+        return self._http.get(
+            self._path(performance_group_key, f"/holds/{quote(operation_id)}")
+        )
+
+    def book_hold(
+        self,
+        performance_group_key: str,
+        operation_id: str,
+        book_action_id: str,
+        booking_ref: str,
+    ) -> Any:
+        """Book a committed hold using stable IDs; poll ``retrieve_booking`` if pending."""
+        return self._http.post(
+            self._path(performance_group_key, f"/holds/{quote(operation_id)}/book"),
+            body={"bookActionId": book_action_id, "bookingRef": booking_ref},
+        )
+
+    def retrieve_booking(self, performance_group_key: str, action_id: str) -> Any:
+        return self._http.get(
+            self._path(performance_group_key, f"/bookings/{quote(action_id)}")
+        )

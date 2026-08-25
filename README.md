@@ -1,11 +1,20 @@
-# SeatLayer Python SDK
+# SeatLayer Python Server SDK for Reserved Seating
 
 [![CI](https://github.com/seatlayer/seatlayer-python/actions/workflows/ci.yml/badge.svg)](https://github.com/seatlayer/seatlayer-python/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/seatlayer.svg)](https://pypi.org/project/seatlayer/)
 [![Python](https://img.shields.io/pypi/pyversions/seatlayer.svg)](https://pypi.org/project/seatlayer/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-111827.svg)](LICENSE)
 
-Official Python server SDK for the [SeatLayer](https://seatlayer.io) reserved-seating API.
+The official SeatLayer Python server SDK — the trusted side of a reserved-seating
+integration. Inspect what a hold really contains, price from server-owned seating-chart
+data, and book with a stable `booking_ref`, while managing charts, events, inventory,
+allocations, and webhooks through one typed ticketing API client.
+
+[`seatlayer` on PyPI](https://pypi.org/project/seatlayer/) ·
+[SeatLayer server SDK documentation](https://docs.seatlayer.io/server-sdk/install/) ·
+[SeatLayer reserved-seating platform](https://seatlayer.io/) ·
+[SeatLayer JavaScript seat map SDK](https://www.npmjs.com/package/@seatlayer/js) ·
+[Server API reference](https://docs.seatlayer.io/server-api/)
 
 > **Server-side only.** This package authenticates with your secret key. Never run it anywhere a
 > ticket buyer can reach — browser surfaces get short-lived, origin-bound tokens that you mint here.
@@ -308,6 +317,46 @@ Some API surface is intentionally unwrapped, not merely pending:
 None of these are reachable through `request()` as a supported path either — they are excluded from
 the public manifest, not just from the wrapper.
 
+## Frequently asked questions
+
+### How do I book seats from Python?
+
+Create a client with your secret key, obtain a hold id — either from the buyer's
+browser session or by holding server-side — and call `inventory.book(event_key, hold_id=..., booking_ref=...)`.
+`booking_ref` is your own stable order id and is the join between SeatLayer
+inventory and your commercial order, so the same reference identifies the booking
+in Booking History and when you later cancel it. For phone orders, box office, and
+comps, `inventory.book_best_available` books outright with no browser involved.
+
+### What does the server SDK do compared with the buyer SDK?
+
+The buyer SDK runs where the ticket buyer is: it renders the interactive seating
+chart, handles seat selection, and creates temporary holds. This server SDK is the
+trusted side. It authenticates with your secret key, inspects what a hold actually
+contains, prices from server-owned data, and books. Never bundle the secret key
+into a browser or a mobile app — browser surfaces get short-lived, origin-bound
+tokens that you mint here.
+
+### How do temporary holds work server-side?
+
+A hold reserves seats against concurrent buyers for a limited window.
+`inventory.retrieve_hold(event_key, hold_id)` is the authoritative answer for what is held
+and at what price, so charge from its `items` rather than from anything the browser
+sent you. When an order runs longer than the checkout window, `inventory.extend_hold`
+renews the hold instead of releasing and re-holding, which would hand the seats to
+whoever is racing for them. Bookings carry the server's exact-selection plus
+`booking_ref` safeguard, but the SDK sends each booking once — reconcile an unknown
+outcome before trying again.
+
+### Can I use my own payment provider?
+
+Yes. SeatLayer never processes payment. Inspect the hold, compute the charge from
+the returned `items` and their authoritative `unitPrice` and `currency`, take the
+money through whichever provider you already use — Stripe, Adyen, Razorpay, or your
+own — and then book the hold with your order id as `booking_ref`. SeatLayer owns
+seating state, holds, booking concurrency, and the inventory ledger; your platform
+owns payments, commercial orders, tickets, delivery, and refunds.
+
 ## Related resources
 
 - [Server SDK guide](https://docs.seatlayer.io/server-sdk/install/)
@@ -320,20 +369,21 @@ the public manifest, not just from the wrapper.
 
 ### Other SeatLayer SDKs
 
-| Surface | Package |
-|---|---|
-| Browser (vanilla) | [`@seatlayer/js`](https://www.npmjs.com/package/@seatlayer/js) |
+| Surface | Package or source |
+| --- | --- |
+| JavaScript | [`@seatlayer/js`](https://www.npmjs.com/package/@seatlayer/js) |
 | React | [`@seatlayer/react`](https://www.npmjs.com/package/@seatlayer/react) |
 | React Native | [`@seatlayer/react-native`](https://www.npmjs.com/package/@seatlayer/react-native) |
 | iOS | [`seatlayer-ios`](https://github.com/seatlayer/seatlayer-ios) |
-| Android | [`seatlayer-android`](https://github.com/seatlayer/seatlayer-android) |
 | Flutter | [`seatlayer`](https://pub.dev/packages/seatlayer) |
+| Android | [`seatlayer-android`](https://github.com/seatlayer/seatlayer-android) |
 | Node.js (server) | [`@seatlayer/server`](https://www.npmjs.com/package/@seatlayer/server) |
+| Python (server) | [`seatlayer`](https://pypi.org/project/seatlayer/) (this package) |
 | PHP (server) | [`seatlayer/seatlayer-php`](https://packagist.org/packages/seatlayer/seatlayer-php) |
-| Java (server) | [`io.seatlayer:seatlayer-java`](https://central.sonatype.com/artifact/io.seatlayer/seatlayer-java) |
-| Go (server) | [`github.com/seatlayer/seatlayer-go`](https://pkg.go.dev/github.com/seatlayer/seatlayer-go) |
 | Ruby (server) | [`seatlayer`](https://rubygems.org/gems/seatlayer) |
 | .NET (server) | [`SeatLayer`](https://www.nuget.org/packages/SeatLayer) |
+| Java (server) | [`io.seatlayer:seatlayer-java`](https://central.sonatype.com/artifact/io.seatlayer/seatlayer-java) |
+| Go (server) | [`github.com/seatlayer/seatlayer-go`](https://pkg.go.dev/github.com/seatlayer/seatlayer-go) |
 
 ## Development
 

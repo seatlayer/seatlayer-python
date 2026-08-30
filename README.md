@@ -12,9 +12,9 @@ allocations, and webhooks through one typed ticketing API client.
 
 [`seatlayer` on PyPI](https://pypi.org/project/seatlayer/) ·
 [SeatLayer server SDK documentation](https://docs.seatlayer.io/server-sdk/install/) ·
-[SeatLayer reserved-seating platform](https://seatlayer.io/) ·
+[SeatLayer SDK and API overview](https://seatlayer.io/developers/) ·
 [SeatLayer JavaScript seat map SDK](https://www.npmjs.com/package/@seatlayer/js) ·
-[Server API reference](https://docs.seatlayer.io/server-api/)
+[Server API reference](https://docs.seatlayer.io/server-api/events/)
 
 > **Server-side only.** This package authenticates with your secret key. Never run it anywhere a
 > ticket buyer can reach — browser surfaces get short-lived, origin-bound tokens that you mint here.
@@ -56,6 +56,35 @@ Nullable event-create fields distinguish omission from an explicit reset: passin
 Keys carry their own mode. `sk_test_…` keys can only touch test-mode events and `sk_live_…` only
 live ones; crossing them returns `403 mode_mismatch`, surfaced as `SeatLayerAuthError` with
 `is_mode_mismatch`.
+
+## Fixed Renewable Seasons (unpublished candidate)
+
+The source candidate exposes all 48 trusted organizer operations through
+`seatlayer.seasons`. It is not part of the currently published PyPI release and
+does not make a production-support claim.
+
+After the test hold/book/cancel journey and matching webhook deliveries,
+`validate_season_buyer_rehearsal(season_key)` sends no evidence body; SeatLayer
+discovers the retained chain automatically. Retrieved Season holds contain
+inventory identity, not an authoritative amount—your platform owns package
+price, payment, order, tax, refunds, benefits, and ticket or pass delivery.
+
+```python
+checked = seatlayer.seasons.validate_season(
+    source_performance_group_keys=["pg_subscription_run"],
+)
+draft = seatlayer.seasons.create_season(
+    "2027 subscription",
+    source_performance_group_keys=["pg_subscription_run"],
+    idempotency_key="season-create-2027",
+)["season"]
+activation = seatlayer.seasons.activate_season(draft["key"], draft["revision"])
+```
+
+Treat `202` as accepted work: retain the returned `lifecycleOperation.operationId`
+and poll `retrieve_season_lifecycle`. Buyer sessions are show-once and never
+retried invisibly. Booking, cancellation, and renewal actions require caller-stable
+identities. Only header-replay catalogue mutations retry automatically.
 
 ```python
 seatlayer = SeatLayer(os.environ["SEATLAYER_SECRET_KEY"])

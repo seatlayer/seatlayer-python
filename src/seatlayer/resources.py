@@ -1326,3 +1326,416 @@ class PerformanceGroups:
         return self._http.get(
             self._path(performance_group_key, f"/bookings/{quote(action_id)}")
         )
+
+
+class Seasons:
+    """Fixed Renewable Season organizer operations for trusted backends.
+
+    Method names are the snake_case form of the public operation ids. Browser
+    selection belongs in the distinct SeasonPicker and receives only a scoped
+    buyer token minted here.
+    """
+
+    def __init__(self, http: HttpClient) -> None:
+        self._http = http
+
+    @staticmethod
+    def _path(season_key: str, suffix: str = "") -> str:
+        return f"/v1/seasons/{quote(season_key)}{suffix}"
+
+    @staticmethod
+    def _selection(
+        event_keys: Sequence[str] | None,
+        source_performance_group_keys: Sequence[str] | None,
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {}
+        if event_keys is not None:
+            body["eventKeys"] = list(event_keys)
+        if source_performance_group_keys is not None:
+            body["sourcePerformanceGroupKeys"] = list(source_performance_group_keys)
+        return body
+
+    def list_seasons(
+        self,
+        workspace_id: str | None = None,
+        structure_state: Literal["draft", "active", "closing", "closed", "archived"] | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+    ) -> Any:
+        return self._http.get("/v1/seasons", query={
+            "workspaceId": workspace_id,
+            "structureState": structure_state,
+            "limit": limit,
+            "cursor": cursor,
+        })
+
+    def validate_season(
+        self,
+        event_keys: Sequence[str] | None = None,
+        source_performance_group_keys: Sequence[str] | None = None,
+    ) -> Any:
+        """Read-only compatibility preflight; it never mutates a Season."""
+        return self._http.post(
+            "/v1/seasons/validate",
+            body=self._selection(event_keys, source_performance_group_keys),
+        )
+
+    def create_season(
+        self,
+        name: str,
+        event_keys: Sequence[str] | None = None,
+        source_performance_group_keys: Sequence[str] | None = None,
+        edition: str | None | _Unset = _UNSET,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        body = self._selection(event_keys, source_performance_group_keys)
+        body["name"] = name
+        if edition is not _UNSET:
+            body["edition"] = edition
+        return self._http.post_with_header_replay(
+            "/v1/seasons", body=body, idempotency_key=idempotency_key
+        )
+
+    def retrieve_season(self, season_key: str) -> Any:
+        return self._http.get(self._path(season_key))
+
+    def update_season(
+        self,
+        season_key: str,
+        expected_revision: int,
+        name: str | None = None,
+        edition: str | None | _Unset = _UNSET,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        body: dict[str, Any] = {"expectedRevision": expected_revision}
+        if name is not None:
+            body["name"] = name
+        if edition is not _UNSET:
+            body["edition"] = edition
+        return self._http.mutation_with_header_replay(
+            "PATCH", self._path(season_key), body=body, idempotency_key=idempotency_key
+        )
+
+    def delete_season(self, season_key: str, idempotency_key: str | None = None) -> None:
+        self._http.mutation_with_header_replay(
+            "DELETE", self._path(season_key), idempotency_key=idempotency_key
+        )
+
+    def activate_season(self, season_key: str, expected_revision: int) -> Any:
+        return self._http.post(
+            self._path(season_key, "/activate"), body={"expectedRevision": expected_revision}
+        )
+
+    def close_season(self, season_key: str, expected_revision: int) -> Any:
+        return self._http.post(
+            self._path(season_key, "/close"), body={"expectedRevision": expected_revision}
+        )
+
+    def archive_season(self, season_key: str, expected_revision: int) -> Any:
+        return self._http.post(
+            self._path(season_key, "/archive"), body={"expectedRevision": expected_revision}
+        )
+
+    def retrieve_season_lifecycle(self, season_key: str, operation_id: str) -> Any:
+        return self._http.get(
+            self._path(season_key, f"/lifecycle/{quote(operation_id)}")
+        )
+
+    def create_season_plan(
+        self,
+        season_key: str,
+        name: str,
+        event_keys: Sequence[str] | None = None,
+        source_performance_group_keys: Sequence[str] | None = None,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        body = self._selection(event_keys, source_performance_group_keys)
+        body["name"] = name
+        return self._http.post_with_header_replay(
+            self._path(season_key, "/plans"), body=body, idempotency_key=idempotency_key
+        )
+
+    def retrieve_season_plan(self, season_key: str, plan_key: str) -> Any:
+        return self._http.get(self._path(season_key, f"/plans/{quote(plan_key)}"))
+
+    def publish_season_plan(
+        self, season_key: str, plan_key: str, expected_revision: int
+    ) -> Any:
+        return self._http.post(
+            self._path(season_key, f"/plans/{quote(plan_key)}/publish"),
+            body={"expectedRevision": expected_revision},
+        )
+
+    def supersede_season_plan(
+        self, season_key: str, plan_key: str, expected_revision: int
+    ) -> Any:
+        return self._http.post(
+            self._path(season_key, f"/plans/{quote(plan_key)}/supersede"),
+            body={"expectedRevision": expected_revision},
+        )
+
+    def _sales(self, season_key: str, action: str, expected_revision: int) -> Any:
+        return self._http.post(
+            self._path(season_key, f"/sales/{action}"),
+            body={"expectedRevision": expected_revision},
+        )
+
+    def open_season_sales(self, season_key: str, expected_revision: int) -> Any:
+        return self._sales(season_key, "open", expected_revision)
+
+    def pause_season_sales(self, season_key: str, expected_revision: int) -> Any:
+        return self._sales(season_key, "pause", expected_revision)
+
+    def resume_season_sales(self, season_key: str, expected_revision: int) -> Any:
+        return self._sales(season_key, "resume", expected_revision)
+
+    def end_season_sales(self, season_key: str, expected_revision: int) -> Any:
+        return self._sales(season_key, "end", expected_revision)
+
+    def duplicate_season_to_live(
+        self,
+        season_key: str,
+        event_keys: Sequence[str],
+        name: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        body: dict[str, Any] = {"eventKeys": list(event_keys)}
+        if name is not None:
+            body["name"] = name
+        return self._http.post_with_header_replay(
+            self._path(season_key, "/duplicate-to-live"),
+            body=body,
+            idempotency_key=idempotency_key,
+        )
+
+    def create_season_buyer_access_session(
+        self,
+        season_key: str,
+        allowed_origin: str,
+        include_public: bool,
+        expires_in_seconds: int | None = None,
+        max_quantity: int | None | _Unset = _UNSET,
+        buyer_ref: str | None | _Unset = _UNSET,
+    ) -> Any:
+        body: dict[str, Any] = {
+            "allowedOrigin": allowed_origin,
+            "includePublic": include_public,
+        }
+        if expires_in_seconds is not None:
+            body["expiresInSeconds"] = expires_in_seconds
+        if max_quantity is not _UNSET:
+            body["maxQuantity"] = max_quantity
+        if buyer_ref is not _UNSET:
+            body["buyerRef"] = buyer_ref
+        return self._http.post(
+            self._path(season_key, "/buyer-access-sessions"), body=body
+        )
+
+    def list_season_buyer_access_sessions(
+        self, season_key: str, limit: int | None = None
+    ) -> Any:
+        return self._http.get(
+            self._path(season_key, "/buyer-access-sessions"), query={"limit": limit}
+        )
+
+    def revoke_season_buyer_access_session(
+        self, season_key: str, session_id: str
+    ) -> Any:
+        return self._http.delete(
+            self._path(season_key, f"/buyer-access-sessions/{quote(session_id)}")
+        )
+
+    def retrieve_season_hold(self, season_key: str, operation_id: str) -> Any:
+        return self._http.get(self._path(season_key, f"/holds/{quote(operation_id)}"))
+
+    def book_season_hold(
+        self,
+        season_key: str,
+        operation_id: str,
+        book_action_id: str,
+        booking_ref: str,
+    ) -> Any:
+        return self._http.post(
+            self._path(season_key, f"/holds/{quote(operation_id)}/book"),
+            body={"bookActionId": book_action_id, "bookingRef": booking_ref},
+        )
+
+    def retrieve_season_booking(self, season_key: str, action_id: str) -> Any:
+        return self._http.get(self._path(season_key, f"/bookings/{quote(action_id)}"))
+
+    def cancel_season_booking(
+        self,
+        season_key: str,
+        action_id: str,
+        cancel_action_id: str,
+        booking_ref: str,
+        plan_activation_id: str,
+        right_disposition: Literal["preserve", "release"],
+    ) -> Any:
+        return self._http.post(
+            self._path(season_key, f"/bookings/{quote(action_id)}/cancel"),
+            body={
+                "cancelActionId": cancel_action_id,
+                "bookingRef": booking_ref,
+                "planActivationId": plan_activation_id,
+                "rightDisposition": right_disposition,
+            },
+        )
+
+    def validate_season_buyer_rehearsal(
+        self,
+        season_key: str,
+    ) -> Any:
+        return self._http.post(self._path(season_key, "/buyer-rehearsals/validate"))
+
+    def create_season_holder_import(
+        self,
+        season_key: str,
+        successor_plan_activation_id: str,
+        rows: Sequence[dict[str, Any]],
+        dry_run: bool | None = None,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        body: dict[str, Any] = {
+            "successorPlanActivationId": successor_plan_activation_id,
+            "rows": list(rows),
+        }
+        if dry_run is not None:
+            body["dryRun"] = dry_run
+        return self._http.post_with_header_replay(
+            self._path(season_key, "/imports"),
+            body=body,
+            idempotency_key=idempotency_key,
+        )
+
+    def retrieve_season_holder_import(self, season_key: str, import_id: str) -> Any:
+        return self._http.get(self._path(season_key, f"/imports/{quote(import_id)}"))
+
+    def create_season_renewal_offers(
+        self,
+        season_key: str,
+        deadline_at: int,
+        successor_plan_activation_id: str | None = None,
+        contract_ids: Sequence[str] | None = None,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        body: dict[str, Any] = {"deadlineAt": deadline_at}
+        if successor_plan_activation_id is not None:
+            body["successorPlanActivationId"] = successor_plan_activation_id
+        if contract_ids is not None:
+            body["contractIds"] = list(contract_ids)
+        return self._http.post_with_header_replay(
+            self._path(season_key, "/renewal-offers"),
+            body=body,
+            idempotency_key=idempotency_key,
+        )
+
+    def list_season_renewal_offers(self, season_key: str) -> Any:
+        return self._http.get(self._path(season_key, "/renewal-offers"))
+
+    def retrieve_season_renewal_offer(self, season_key: str, offer_id: str) -> Any:
+        return self._http.get(self._path(season_key, f"/renewal-offers/{quote(offer_id)}"))
+
+    def extend_season_renewal_offer(
+        self, season_key: str, offer_id: str, deadline_at: int
+    ) -> Any:
+        return self._http.post(
+            self._path(season_key, f"/renewal-offers/{quote(offer_id)}/extend"),
+            body={"deadlineAt": deadline_at},
+        )
+
+    def inspect_season_renewal_offer(self, season_key: str, offer_id: str) -> Any:
+        return self._http.get(
+            self._path(season_key, f"/renewal-offers/{quote(offer_id)}/inspect")
+        )
+
+    def commit_season_renewal_offer(
+        self,
+        season_key: str,
+        offer_id: str,
+        commit_action_id: str,
+        order_ref: str,
+        booking_ref: str,
+        plan_activation_id: str,
+    ) -> Any:
+        return self._http.post(
+            self._path(season_key, f"/renewal-offers/{quote(offer_id)}/commit"),
+            body={
+                "commitActionId": commit_action_id,
+                "orderRef": order_ref,
+                "bookingRef": booking_ref,
+                "planActivationId": plan_activation_id,
+            },
+        )
+
+    def decline_season_renewal_offer(self, season_key: str, offer_id: str) -> Any:
+        return self._http.post(
+            self._path(season_key, f"/renewal-offers/{quote(offer_id)}/decline"), body={}
+        )
+
+    def release_season_renewal_offer(self, season_key: str, offer_id: str) -> Any:
+        return self._http.post(
+            self._path(season_key, f"/renewal-offers/{quote(offer_id)}/release"), body={}
+        )
+
+    def list_season_occurrences(self, season_key: str) -> Any:
+        return self._http.get(self._path(season_key, "/occurrences"))
+
+    def create_season_amendment(
+        self,
+        season_key: str,
+        event_key: str,
+        kind: Literal["reschedule", "replace", "cancel_exception"],
+        starts_at: int | None = None,
+        name: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        body: dict[str, Any] = {"eventKey": event_key, "kind": kind}
+        if starts_at is not None:
+            body["startsAt"] = starts_at
+        if name is not None:
+            body["name"] = name
+        return self._http.post_with_header_replay(
+            self._path(season_key, "/amendments"),
+            body=body,
+            idempotency_key=idempotency_key,
+        )
+
+    def list_season_amendments(self, season_key: str) -> Any:
+        return self._http.get(self._path(season_key, "/amendments"))
+
+    def retrieve_season_amendment(self, season_key: str, amendment_id: str) -> Any:
+        return self._http.get(
+            self._path(season_key, f"/amendments/{quote(amendment_id)}")
+        )
+
+    def retrieve_season_report(self, season_key: str) -> Any:
+        return self._http.get(self._path(season_key, "/reports"))
+
+    def list_season_operations(self, season_key: str) -> Any:
+        return self._http.get(self._path(season_key, "/operations"))
+
+    def retrieve_season_support_lookup(
+        self,
+        season_key: str,
+        booking_ref: str | None = None,
+        holder_ref: str | None = None,
+    ) -> Any:
+        return self._http.get(
+            self._path(season_key, "/support-lookups"),
+            query={"bookingRef": booking_ref, "holderRef": holder_ref},
+        )
+
+    def list_season_outbox(self, season_key: str) -> Any:
+        return self._http.get(self._path(season_key, "/outbox"))
+
+    def replay_season_outbox(self, season_key: str, occurrence_id: str) -> Any:
+        return self._http.post(
+            self._path(season_key, f"/outbox/{quote(occurrence_id)}/replay"), body={}
+        )
+
+    def list_season_audit(self, season_key: str) -> Any:
+        return self._http.get(self._path(season_key, "/audit"))
+
+    def export_season_support_snapshot(self, season_key: str) -> Any:
+        return self._http.get(self._path(season_key, "/export"))

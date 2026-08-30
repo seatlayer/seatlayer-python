@@ -140,6 +140,26 @@ class HttpClient:
             header_replay=True,
         )
 
+    def mutation_with_header_replay(
+        self,
+        method: str,
+        path: str,
+        query: dict[str, Any] | None = None,
+        body: Any = None,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        """Internal typed-operation path for non-POST exact replay mutations."""
+        return self._request(
+            method,
+            path,
+            query=query,
+            body=body,
+            raw_body=None,
+            content_type=None,
+            idempotency_key=idempotency_key,
+            header_replay=True,
+        )
+
     def _request(
         self,
         method: str,

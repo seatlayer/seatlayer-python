@@ -5,13 +5,13 @@
 [![Python](https://img.shields.io/pypi/pyversions/seatlayer.svg)](https://pypi.org/project/seatlayer/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-111827.svg)](LICENSE)
 
-The official SeatLayer Python server SDK — the trusted side of a reserved-seating
-integration. Inspect what a hold really contains, price from server-owned seating-chart
-data, and book with a stable `booking_ref`, while managing charts, events, inventory,
-allocations, and webhooks through one typed ticketing API client.
+SeatLayer's official Python server SDK is the trusted side of its reserved seating and seat
+booking API. Inspect what a hold really contains, price from server-owned seating-chart data,
+and book with a stable `booking_ref`, while managing charts, events, inventory, allocations,
+and webhooks through one typed ticketing API client.
 
 [`seatlayer` on PyPI](https://pypi.org/project/seatlayer/) ·
-[SeatLayer server SDK documentation](https://docs.seatlayer.io/server-sdk/install/) ·
+[Python server SDK guide](https://docs.seatlayer.io/server-sdk/python/) ·
 [SeatLayer SDK and API overview](https://seatlayer.io/developers/) ·
 [SeatLayer JavaScript seat map SDK](https://www.npmjs.com/package/@seatlayer/js) ·
 [Server API reference](https://docs.seatlayer.io/server-api/events/)
@@ -19,7 +19,7 @@ allocations, and webhooks through one typed ticketing API client.
 > **Server-side only.** This package authenticates with your secret key. Never run it anywhere a
 > ticket buyer can reach — browser surfaces get short-lived, origin-bound tokens that you mint here.
 
-## Install
+## Install the Python seat booking SDK
 
 ```bash
 pip install seatlayer
@@ -36,7 +36,8 @@ from seatlayer import SeatLayer
 seatlayer = SeatLayer(os.environ["SEATLAYER_SECRET_KEY"])
 
 # 1. Provision a venue from the public template catalog as a new draft chart.
-chart = seatlayer.templates.instantiate_template("tpl_arena")["meta"]
+# Replace this placeholder with a template id from your catalog.
+chart = seatlayer.templates.instantiate_template("your-published-template")["meta"]
 seatlayer.charts.publish(chart["id"])
 
 # 2. Create an event on it.
@@ -91,15 +92,19 @@ if os.environ.get("ENV") == "production" and seatlayer.mode != "live":
     raise RuntimeError("Refusing to boot production against test-mode seating data.")
 ```
 
-## The two selling flows
+## Book reserved seats from Python
 
 **Buyer picks seats in the browser.** Your frontend holds them; your backend confirms the price and
 books. Never price from what the browser sent you — `retrieve_hold` is authoritative.
 
 ```python
 hold = seatlayer.inventory.retrieve_hold(event_key, hold_id)
-total = sum(item["unitPrice"] for item in hold["items"])
-# … charge `total` in hold["currency"] …
+currencies = {item["currency"] for item in hold["items"]}
+if len(currencies) != 1:
+    raise ValueError("A hold must use one currency")
+currency = currencies.pop()
+total = sum(item["unitPrice"] * item.get("quantity", 1) for item in hold["items"])
+# … charge `total` in `currency` …
 seatlayer.inventory.book(event_key, hold_id=hold_id, booking_ref=charge.id)
 ```
 
@@ -197,12 +202,12 @@ The full set, all opt-in:
 |---|---|
 | `event:view` | Read the seat map and its live states |
 | `event:block` | Block and unblock seats |
-| `event:cancel` | Unbook paid seats and issue gateway refunds — destructive, moves money |
+| `event:cancel` | Cancel a Platform/SDK booking by reference and return its inventory to sale; does not move gateway money |
 | `event:reports` | Read sales and availability reports |
 | `event:channels:view` | Read sales channels and their allocations |
 | `event:channels:manage` | Create, pause and archive channels; rotate access links |
 | `event:orders:read` | Read SeatLayer-managed orders |
-| `event:refund` | Refund a SeatLayer-managed order |
+| `event:refund` | Refund an eligible Managed Ticketing order through its connected gateway |
 | `event:tickets:send` | Send SeatLayer-managed tickets |
 | `event:door:view` | Read the door list |
 | `event:door:checkin` | Check tickets in and out |
@@ -287,10 +292,15 @@ requests.
 
 ## Reliability
 
-**Retries and idempotency.** Reads retry 408, 429 and 5xx responses with backoff. Only chart create,
-chart copy, template instantiation, event create and workspace create opt into mutation retries: the SDK generates one
-`Idempotency-Key` and reuses it for every attempt. All other mutations are single-attempt, even if
-you supply a key.
+**Retries and idempotency.** Reads retry 408, 429 and 5xx responses with backoff. Fourteen
+mutations opt into exact header replay: `charts.create`, `charts.copy`,
+`templates.instantiate_template`, `events.create`, `workspaces.create`,
+`performance_groups.create`, `seasons.create_season`, `seasons.update_season`,
+`seasons.delete_season`, `seasons.create_season_plan`, `seasons.duplicate_season_to_live`,
+`seasons.create_season_holder_import`, `seasons.create_season_renewal_offers`, and
+`seasons.create_season_amendment`. The SDK generates one `Idempotency-Key` and reuses it for every
+attempt. All remaining SDK mutations are sent once; some have a server-side domain idempotency
+contract, but the SDK does not retry them automatically.
 
 **Booking safety.** Direct and box-office bookings have the server's exact-selection plus
 `booking_ref` safeguard, but the SDK still sends them once. Holds, best-available operations,
@@ -300,7 +310,7 @@ before trying again.
 ```python
 SeatLayer(
     os.environ["SEATLAYER_SECRET_KEY"],
-    max_retries=3,   # attempts for reads and the five replay-safe creates
+    max_retries=3,   # attempts for reads and the 14 exact-header-replay mutations
     timeout=30.0,    # seconds, per attempt
 )
 ```
@@ -316,6 +326,10 @@ seatlayer.request("POST", "/v1/events/ev_1/some-new-route", body={...})
 
 ## API surface
 
+The client exposes these resources. Performance Groups cover runs, sessions, holds, and bookings;
+Seasons cover catalogue, plan, sales, buyer-session, booking, renewal, occurrence, reporting,
+outbox, and support operations.
+
 | Resource | Methods |
 | --- | --- |
 | `charts` | `list` `list_all` `create` `retrieve` `update` `delete` `copy` `archive` `unarchive` `publish` |
@@ -326,6 +340,8 @@ seatlayer.request("POST", "/v1/events/ev_1/some-new-route", body={...})
 | `sessions` | `create_manage_session` `revoke_manage_session` `create_designer_session` `revoke_designer_session` |
 | `webhooks` | `list` `create` `update` `delete` `list_deliveries` |
 | `workspaces` | `list` `create` `retrieve` `update` |
+| `performance_groups` | `list` `create` `retrieve` `delete` `activate` `close` `retrieve_lifecycle` `create_buyer_access_session` `list_buyer_access_sessions` `revoke_buyer_access_session` `retrieve_hold` `book_hold` `retrieve_booking` |
+| `seasons` | 48 operations for catalogue and Plan lifecycle, sales windows, buyer access and booking, holder imports, renewals, occurrence amendments, reports, audit, outbox, and support export |
 
 Full reference: [SeatLayer server API events](https://docs.seatlayer.io/server-api/events/)
 
@@ -378,16 +394,16 @@ outcome before trying again.
 
 ### Can I use my own payment provider?
 
-Yes. SeatLayer never processes payment. Inspect the hold, compute the charge from
-the returned `items` and their authoritative `unitPrice` and `currency`, take the
-money through whichever provider you already use — Stripe, Adyen, Razorpay, or your
-own — and then book the hold with your order id as `booking_ref`. SeatLayer owns
-seating state, holds, booking concurrency, and the inventory ledger; your platform
-owns payments, commercial orders, tickets, delivery, and refunds.
+Yes. This server SDK does not process payment in a Platform/SDK integration. Inspect the hold,
+compute the charge from each returned item's authoritative `unitPrice`, `quantity`, and `currency`,
+take the money through whichever provider you already use, and then book the hold with your order
+id as `booking_ref`. SeatLayer owns seating state, holds, booking concurrency, and the inventory
+ledger in this integration; your platform owns payments, commercial orders, tickets, delivery,
+and refunds. Managed Ticketing is a separate product path with organizer-connected payments.
 
 ## Continue your Python integration
 
-- [Follow the SeatLayer server SDK guide](https://docs.seatlayer.io/server-sdk/install/)
+- [Follow the Python server SDK guide](https://docs.seatlayer.io/server-sdk/python/)
   for installation, authentication, and the full hold-to-booking flow.
 - [Handle errors, retries, and safe booking repeats](https://docs.seatlayer.io/server-sdk/reliability/)
   before connecting a production order flow.

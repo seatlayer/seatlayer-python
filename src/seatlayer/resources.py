@@ -32,6 +32,12 @@ from .types import (
     WebhookList,
 )
 
+EventHostingRegion = Literal[
+    "western-europe", "eastern-europe", "north-america-east", "north-america-west",
+    "south-america", "asia-pacific", "northeast-asia", "southeast-asia",
+    "oceania", "africa", "middle-east",
+]
+
 
 class _Unset:
     """Distinguish an omitted nullable request field from explicit JSON null."""
@@ -290,12 +296,14 @@ class Events:
         locale: str | None | _Unset = _UNSET,
         poster_asset_id: str | None | _Unset = _UNSET,
         mode: Literal["live", "test"] | None = None,
+        region: EventHostingRegion | None = None,
     ) -> Any:
         body: dict[str, Any] = {"chartId": chart_id}
         for key, value in (
             ("name", name),
             ("slug", slug),
             ("mode", mode),
+            ("region", region),
         ):
             if value is not None:
                 body[key] = value
@@ -1167,10 +1175,13 @@ class Workspaces:
         name: str,
         external_ref: str | None | _Unset = _UNSET,
         idempotency_key: str | None = None,
+        default_region: EventHostingRegion | None = None,
     ) -> Any:
         body: dict[str, Any] = {"name": name}
         if external_ref is not _UNSET:
             body["externalRef"] = external_ref
+        if default_region is not None:
+            body["defaultRegion"] = default_region
         return self._http.post_with_header_replay(
             "/v1/workspaces", body=body, idempotency_key=idempotency_key
         )
@@ -1178,12 +1189,20 @@ class Workspaces:
     def retrieve(self, workspace_id: str) -> Any:
         return self._http.get(f"/v1/workspaces/{quote(workspace_id)}")
 
-    def update(self, workspace_id: str, **fields: Any) -> Any:
+    def update(
+        self,
+        workspace_id: str,
+        *,
+        default_region: EventHostingRegion | None = None,
+        **fields: Any,
+    ) -> Any:
         """Rename, re-reference, or disable a workspace.
 
         The organisation's default workspace cannot be disabled — the API answers
         409 ``default_workspace_required``. Promote another one first.
         """
+        if default_region is not None:
+            fields["defaultRegion"] = default_region
         return self._http.patch(f"/v1/workspaces/{quote(workspace_id)}", body=fields)
 
 

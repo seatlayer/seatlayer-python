@@ -650,6 +650,7 @@ class TestWireContracts:
             timezone="Asia/Kolkata",
             locale="en-IN",
             poster_asset_id="ast_1",
+            region="asia-pacific",
         )
         sdk.events.update_chart(
             "ev_1", acknowledge_dropped_assignments=True, reason="approved migration"
@@ -665,6 +666,7 @@ class TestWireContracts:
             "timezone": "Asia/Kolkata",
             "locale": "en-IN",
             "posterAssetId": "ast_1",
+            "region": "asia-pacific",
         }
         assert json.loads(calls[1].data) == {
             "acknowledgeDroppedAssignments": True,

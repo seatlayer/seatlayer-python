@@ -41,13 +41,31 @@ chart = seatlayer.templates.instantiate_template("your-published-template")["met
 seatlayer.charts.publish(chart["id"])
 
 # 2. Create an event on it.
-event = seatlayer.events.create(chart_id=chart["id"], name="Spring Gala")["meta"]
+event = seatlayer.events.create(
+    chart_id=chart["id"], name="Spring Gala",
+    currency="EUR",  # omit to inherit the workspace currency
+    region="western-europe",  # India: "asia-pacific"
+)["meta"]
 
 # 3. Sell four seats over the phone.
 held = seatlayer.inventory.hold_best_available(event["key"], qty=4)
 # … take payment against held["items"], which carry authoritative prices …
 seatlayer.inventory.book(event["key"], hold_id=held["holdId"], booking_ref="order-8842")
 ```
+
+## Event hosting region
+
+Pass `region` to `events.create` based on the **event venue**, not your API server or office.
+It controls the initial placement of the Event's live inventory; an existing Event
+cannot be moved later. Omit it to inherit the workspace default (`western-europe` for new accounts).
+Set that default with `workspaces.create(..., default_region=...)` or
+`workspaces.update(workspace_id, default_region=...)`; changing it affects only future Events.
+
+- `western-europe`, `eastern-europe`, `north-america-east`, `north-america-west`, `south-america`
+- `asia-pacific`, `northeast-asia`, `southeast-asia`, `oceania`, `africa`, `middle-east`
+
+The hint is best effort, not a data-residency guarantee. See the
+[full Event region guide](https://docs.seatlayer.io/server-api/event-regions/).
 
 Nullable event-create fields distinguish omission from an explicit reset: passing, for example,
 `venue=None` sends JSON `null`; leaving `venue` out sends no field.

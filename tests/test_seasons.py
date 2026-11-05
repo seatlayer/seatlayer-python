@@ -26,7 +26,7 @@ class FakeResponse(io.BytesIO):
 CSV = "holder,email\r\nA. Fan,fan@example.com\r\n"
 
 
-def test_maps_all_86_season_operations_and_replay_classes() -> None:
+def test_maps_all_87_season_operations_and_replay_classes() -> None:
     calls: list[Any] = []
 
     def transport(request: Any, _timeout: float) -> FakeResponse:
@@ -147,6 +147,7 @@ def test_maps_all_86_season_operations_and_replay_classes() -> None:
     seasons.refund_season_performance(
         key, "ev/1", "per_date", reason="Storm", idempotency_key="refund-date-1"
     )
+    seasons.release_season_lapsed_offers(key)
     seasons.list_season_bulk_jobs(key)
     seasons.retrieve_season_bulk_job(key, "job/1")
     # Renewal by API: the quote, the phone or box office intent, and the checkout.
@@ -162,7 +163,7 @@ def test_maps_all_86_season_operations_and_replay_classes() -> None:
         idempotency_key="renew-1",
     )
 
-    assert len(calls) == 86
+    assert len(calls) == 87
     actual = [(call.method, call.full_url.removeprefix("https://api.seatlayer.io")) for call in calls]
     assert actual == [
         ("GET", "/v1/seasons?workspaceId=ws+1&structureState=draft&limit=20&cursor=c%2F1"),
@@ -246,6 +247,7 @@ def test_maps_all_86_season_operations_and_replay_classes() -> None:
         ("GET", "/v1/seasons/sea%2Fa/reports/orders.csv"),
         ("GET", "/v1/seasons/sea%2Fa/seat-counts"),
         ("POST", "/v1/seasons/sea%2Fa/performances/ev%2F1/refunds"),
+        ("POST", "/v1/seasons/sea%2Fa/renewal-offers/release-lapsed"),
         ("GET", "/v1/seasons/sea%2Fa/jobs"),
         ("GET", "/v1/seasons/sea%2Fa/jobs/job%2F1"),
         ("GET", "/v1/seasons/sea%2Fa/renewal-offers/offer%2F1/quote"),
@@ -315,6 +317,7 @@ def test_maps_all_86_season_operations_and_replay_classes() -> None:
         None,
         None,
         None,
+        None,
         {
             "returnUrl": "https://tickets.example/renewed",
             "buyerEmail": "ana@example.com",
@@ -331,14 +334,14 @@ def test_maps_all_86_season_operations_and_replay_classes() -> None:
 
     caller_keys = {
         48: "from-season-1", 50: "perf-1", 51: "attach-1", 52: "perf-del-1", 53: "plan-upd-1",
-        80: "refund-date-1", 85: "renew-1",
+        80: "refund-date-1", 86: "renew-1",
     }
     for index, expected_key in caller_keys.items():
         assert calls[index].get_header("Idempotency-key") == expected_key
 
     replay_indexes = {
         2, 4, 5, 10, 18, 27, 29, 38,
-        48, 50, 51, 52, 53, 54, 55, 56, 58, 60, 61, 62, 66, 67, 68, 80, 85,
+        48, 50, 51, 52, 53, 54, 55, 56, 58, 60, 61, 62, 66, 67, 68, 80, 81, 86,
     }
     for index, request in enumerate(calls):
         headers = {name.lower(): value for name, value in request.header_items()}
@@ -458,3 +461,49 @@ def test_renewal_by_api_decline_reason_and_checkout_body_reach_the_wire() -> Non
     assert calls[1].get_header("Idempotency-key") is None
     # A checkout without a caller key still gets one, so a retry answers the same order.
     assert calls[2].get_header("Idempotency-key")
+
+
+def test_renewal_offer_lists_page_and_bulk_answers_come_back_as_sent() -> None:
+    calls: list[Any] = []
+    answers = [
+        FakeResponse(body={"offers": [], "holdersWithoutEmail": 0, "nextCursor": "c/2"}),
+        FakeResponse(body={"offers": [], "truncated": False, "nextCursor": None}),
+        FakeResponse(202, {"job": {"jobId": "sbj_1", "kind": "renewal_run"}, "batchId": "srb_1"}),
+        FakeResponse(202, {"job": {"jobId": "sbj_2", "kind": "holder_import"}}),
+        FakeResponse(202, {"job": {"jobId": "sbj_3", "kind": "lapsed_release"}}),
+        FakeResponse(),
+        FakeResponse(),
+    ]
+
+    def transport(request: Any, _timeout: float) -> FakeResponse:
+        calls.append(request)
+        return answers.pop(0)
+
+    seasons = SeatLayer("sk_test_abc", transport=transport).seasons
+    hosted = seasons.retrieve_season_hosted_renewals("sea/a", cursor="c/1", limit=500)
+    offers = seasons.list_season_renewal_offers("sea/a", cursor="c/1", limit=100)
+    run = seasons.create_season_renewal_offers("sea/a", 123, idempotency_key="offers-1")
+    brought = seasons.create_season_holder_import_from_season("sea/a", "sea/prev", "pa_1")
+    released = seasons.release_season_lapsed_offers("sea/a", idempotency_key="release-1")
+
+    assert [(call.method, call.full_url.removeprefix("https://api.seatlayer.io")) for call in calls] == [
+        ("GET", "/v1/seasons/sea%2Fa/renewal-hosted?cursor=c%2F1&limit=500"),
+        ("GET", "/v1/seasons/sea%2Fa/renewal-offers?cursor=c%2F1&limit=100"),
+        ("POST", "/v1/seasons/sea%2Fa/renewal-offers"),
+        ("POST", "/v1/seasons/sea%2Fa/imports/from-season"),
+        ("POST", "/v1/seasons/sea%2Fa/renewal-offers/release-lapsed"),
+    ]
+    assert hosted["nextCursor"] == "c/2"
+    assert offers["nextCursor"] is None
+    assert run == {"job": {"jobId": "sbj_1", "kind": "renewal_run"}, "batchId": "srb_1"}
+    assert brought == {"job": {"jobId": "sbj_2", "kind": "holder_import"}}
+    assert released == {"job": {"jobId": "sbj_3", "kind": "lapsed_release"}}
+    assert calls[4].data is None
+    assert calls[4].get_header("Idempotency-key") == "release-1"
+    # Without paging arguments the lists send no query.
+    seasons.retrieve_season_hosted_renewals("sea_1")
+    seasons.list_season_renewal_offers("sea_1")
+    assert [call.full_url for call in calls[5:]] == [
+        "https://api.seatlayer.io/v1/seasons/sea_1/renewal-hosted",
+        "https://api.seatlayer.io/v1/seasons/sea_1/renewal-offers",
+    ]

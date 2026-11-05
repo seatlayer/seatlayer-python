@@ -1893,6 +1893,15 @@ class Seasons:
         contract_ids: Sequence[str] | None = None,
         idempotency_key: str | None = None,
     ) -> Any:
+        """Offer each eligible prior Contract its renewal.
+
+        For 100 contracts or fewer this answers 201 ``{"offers": [...]}``. Above 100
+        it answers 202 ``{"job": ..., "batchId": ...}``: a ``renewal_run`` job makes
+        the offers. Follow it with :meth:`retrieve_season_bulk_job`, then page the
+        offers with :meth:`list_season_renewal_offers`. Retried safely with one
+        Idempotency-Key, which answers the same job. Can refuse with
+        ``409 job_mismatch`` or ``503 season_not_configured``.
+        """
         body: dict[str, Any] = {"deadlineAt": deadline_at}
         if successor_plan_activation_id is not None:
             body["successorPlanActivationId"] = successor_plan_activation_id
@@ -1904,8 +1913,19 @@ class Seasons:
             idempotency_key=idempotency_key,
         )
 
-    def list_season_renewal_offers(self, season_key: str) -> Any:
-        return self._http.get(self._path(season_key, "/renewal-offers"))
+    def list_season_renewal_offers(
+        self, season_key: str, cursor: str | None = None, limit: int | None = None
+    ) -> Any:
+        """One page of renewal offers, newest first.
+
+        Pass ``cursor`` from the previous page's ``nextCursor`` (``None`` on the last
+        page). ``limit`` is 1-100 and defaults to 100. A bad cursor or limit answers
+        ``400 invalid_cursor`` or ``400 invalid_limit``.
+        """
+        return self._http.get(
+            self._path(season_key, "/renewal-offers"),
+            query={"cursor": cursor, "limit": limit},
+        )
 
     def retrieve_season_renewal_offer(self, season_key: str, offer_id: str) -> Any:
         return self._http.get(self._path(season_key, f"/renewal-offers/{quote(offer_id)}"))
@@ -2041,7 +2061,16 @@ class Seasons:
         dry_run: bool | None = None,
         idempotency_key: str | None = None,
     ) -> Any:
-        """Dry-run or commit renewal rights taken from a previous season's holders."""
+        """Dry-run or commit renewal rights taken from a previous season's holders.
+
+        A dry run answers 200 and a commit of 100 holders or fewer answers 201,
+        both as ``{"import": ...}``. A commit of more than 100 holders answers 202
+        ``{"job": ...}``: a ``holder_import`` job brings them across. Follow it with
+        :meth:`retrieve_season_bulk_job`; its ``summary`` has the same counts when it
+        completes. Retried safely with one Idempotency-Key, which answers the same
+        job. Can refuse with ``409 job_mismatch``, ``503 job_busy`` or
+        ``503 season_not_configured``.
+        """
         body = _fields((("dryRun", dry_run),))
         body["sourceSeasonId"] = source_season_id
         body["successorPlanActivationId"] = successor_plan_activation_id
@@ -2389,9 +2418,19 @@ class Seasons:
             self._path(season_key, f"/orders/{quote(order_id)}/resend"), body=body or None
         )
 
-    def retrieve_season_hosted_renewals(self, season_key: str) -> Any:
-        """Retrieve renewal links, payments and emails for each offer."""
-        return self._http.get(self._path(season_key, "/renewal-hosted"))
+    def retrieve_season_hosted_renewals(
+        self, season_key: str, cursor: str | None = None, limit: int | None = None
+    ) -> Any:
+        """Retrieve renewal links, payments and emails for one page of offers, newest first.
+
+        Pass ``cursor`` from the previous page's ``nextCursor`` (``None`` on the last
+        page). ``limit`` is 1-500 and defaults to 500. A bad cursor or limit answers
+        ``400 invalid_cursor`` or ``400 invalid_limit``.
+        """
+        return self._http.get(
+            self._path(season_key, "/renewal-hosted"),
+            query={"cursor": cursor, "limit": limit},
+        )
 
     def rotate_season_renewal_offer_link(self, season_key: str, offer_id: str) -> Any:
         """Make a new renewal link for one holder; the old link stops working.
@@ -2418,7 +2457,11 @@ class Seasons:
     def create_season_renewal_notices(
         self, season_key: str, offer_ids: Sequence[str] | None = None
     ) -> Any:
-        """Email renewal invitations now and reminders before the deadline."""
+        """Email renewal invitations now and reminders before the deadline.
+
+        Leave ``offer_ids`` out to email every open offer. At most 20,000 ids;
+        more answers ``422 too_many_offer_ids``.
+        """
         body = _fields((("offerIds", None if offer_ids is None else list(offer_ids)),))
         return self._http.post(
             self._path(season_key, "/renewal-notices"), body=body or None
@@ -2517,6 +2560,20 @@ class Seasons:
         return self._http.post_with_header_replay(
             self._path(season_key, f"/performances/{quote(event_key)}/refunds"),
             body=_fields((("amount", amount), ("reason", reason))),
+            idempotency_key=idempotency_key,
+        )
+
+    def release_season_lapsed_offers(
+        self, season_key: str, idempotency_key: str | None = None
+    ) -> Any:
+        """Release the seats of every lapsed renewal offer, as a job.
+
+        Answers ``{"job": ...}``; follow it with :meth:`retrieve_season_bulk_job`.
+        An offer extended before its turn is skipped and keeps its seat. Retried
+        safely with one Idempotency-Key, which replays the same job.
+        """
+        return self._http.post_with_header_replay(
+            self._path(season_key, "/renewal-offers/release-lapsed"),
             idempotency_key=idempotency_key,
         )
 

@@ -382,6 +382,20 @@ class TestRetry:
         assert len(calls) == 2
         assert calls[0].get_header("Idempotency-key") == calls[1].get_header("Idempotency-key")
 
+    def test_release_of_lapsed_offers_retries_with_one_key(self) -> None:
+        sdk, calls = make_client([
+            {"status": 503, "body": {"error": "job_busy"}},
+            {"status": 202, "body": {"job": {"jobId": "sbj_1", "kind": "lapsed_release"}}},
+        ])
+        result = sdk.seasons.release_season_lapsed_offers("sea_1")
+
+        assert result == {"job": {"jobId": "sbj_1", "kind": "lapsed_release"}}
+        assert len(calls) == 2
+        assert calls[0].full_url.endswith("/v1/seasons/sea_1/renewal-offers/release-lapsed")
+        assert calls[0].data is None
+        first = calls[0].get_header("Idempotency-key")
+        assert first and first == calls[1].get_header("Idempotency-key")
+
     def test_template_instantiate_retries_but_release_mutations_do_not(self) -> None:
         template, template_calls = make_client([
             {"status": 503, "body": {"error": "unavailable"}},

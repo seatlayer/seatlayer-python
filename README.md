@@ -88,11 +88,11 @@ live ones; crossing them returns `403 mode_mismatch`, surfaced as `SeatLayerAuth
 
 ## Fixed Renewable Seasons
 
-`seatlayer.seasons` exposes all 86 trusted organizer operations: catalogue and packages,
+`seatlayer.seasons` exposes all 87 trusted organizer operations: catalogue and packages,
 performances, package prices (per price type: `adult`, `child`, `concession`, `senior`,
 `student`), sales, checkout tests, buyer access and booking, holder imports, holders, season
 orders, renewals, hosted renewals and renewal checkouts, occurrences (postpone and cancel a date), bulk refunds of a
-cancelled date and their jobs, reports, CSV exports, audit, outbox, and support export.
+cancelled date, the release of lapsed renewal offers and their jobs, reports, CSV exports, audit, outbox, and support export.
 
 After the test hold/book/cancel journey and matching webhook deliveries,
 `validate_season_buyer_rehearsal(season_key)` sends no evidence body; SeatLayer
@@ -380,7 +380,7 @@ requests.
 
 ## Reliability
 
-**Retries and idempotency.** Reads retry 408, 429 and 5xx responses with backoff. Forty
+**Retries and idempotency.** Reads retry 408, 429 and 5xx responses with backoff. Forty-one
 mutations opt into exact header replay: `charts.create`, `charts.copy`,
 `templates.instantiate_template`, `events.create`, `workspaces.create`,
 `performance_groups.create`; on `seasons`, `create_season`, `update_season`, `delete_season`,
@@ -391,7 +391,8 @@ mutations opt into exact header replay: `charts.create`, `charts.copy`,
 `duplicate_season_to_live`, `create_season_holder_import`,
 `create_season_holder_import_from_season`, `create_season_renewal_offers`,
 `create_season_amendment`, `refund_season_order`, `cancel_season_order`,
-`cancel_season_order_date`, `refund_season_performance`, and `create_season_renewal_checkout`;
+`cancel_season_order_date`, `refund_season_performance`, `release_season_lapsed_offers`, and
+`create_season_renewal_checkout`;
 `holders.update_holder`, `holders.create_holder_transfer`, `holders.create_holder_return`, and
 `holders.create_holder_renewal_checkout`; `orders.refund_event_order` and `orders.cancel_event_order`; and
 `event_series.create_event_series`, `event_series.add_event_series_dates`, and
@@ -407,7 +408,7 @@ before trying again.
 ```python
 SeatLayer(
     os.environ["SEATLAYER_SECRET_KEY"],
-    max_retries=3,   # attempts for reads and the 40 exact-header-replay mutations
+    max_retries=3,   # attempts for reads and the 41 exact-header-replay mutations
     timeout=30.0,    # seconds, per attempt
 )
 ```
@@ -438,7 +439,7 @@ holder, order, renewal, occurrence, reporting, export, outbox, and support opera
 | `webhooks` | `list` `create` `update` `delete` `list_deliveries` |
 | `workspaces` | `list` `create` `retrieve` `update` |
 | `performance_groups` | `list` `create` `retrieve` `delete` `activate` `close` `retrieve_lifecycle` `create_buyer_access_session` `list_buyer_access_sessions` `revoke_buyer_access_session` `retrieve_hold` `book_hold` `retrieve_booking` |
-| `seasons` | 86 operations for catalogue and Plan lifecycle, performances, package prices, sales windows, checkout tests, buyer access and booking, holder imports, holders, season orders, renewals, hosted renewals and renewal checkouts, occurrence amendments, returns and reclaims, bulk refunds and jobs, reports, CSV exports, audit, outbox, and support export |
+| `seasons` | 87 operations for catalogue and Plan lifecycle, performances, package prices, sales windows, checkout tests, buyer access and booking, holder imports, holders, season orders, renewals, hosted renewals and renewal checkouts, occurrence amendments, returns and reclaims, bulk refunds, lapsed offer release and jobs, reports, CSV exports, audit, outbox, and support export |
 | `holders` | `list_customers` `retrieve_holder` `update_holder` `revoke_holder_sessions` `list_holder_seasons` `list_holder_tickets` `retrieve_holder_ticket` `create_holder_transfer` `list_holder_transfers` `cancel_holder_transfer` `accept_holder_transfer` `create_holder_return` `create_holder_renewal_checkout` `decline_holder_renewal_offer` |
 | `orders` | `list_orders` `retrieve_order` `list_order_tickets` `list_event_orders` `retrieve_event_order` `export_event_orders_csv` `refund_event_order` `cancel_event_order` `resend_event_order_tickets` |
 | `event_series` | `create_event_series` `list_event_series` `retrieve_event_series` `add_event_series_dates` `update_event_series` |

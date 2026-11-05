@@ -191,10 +191,11 @@ CASES: list[tuple[str, Call, str, str, Any, bool]] = [
     (
         "listOrders",
         lambda sdk: sdk.orders.list_orders(
-            season_key="sea/1", status="confirmed", from_=1, to=2, cursor="c/1", limit=50
+            season_key="sea/1", status="confirmed", from_=1, to=2, cursor="c/1", limit=50,
+            holder_ref="ord/1",
         ),
         "GET",
-        "/v1/orders?seasonKey=sea%2F1&status=confirmed&from=1&to=2&cursor=c%2F1&limit=50",
+        "/v1/orders?seasonKey=sea%2F1&holderRef=ord%2F1&status=confirmed&from=1&to=2&cursor=c%2F1&limit=50",
         None,
         False,
     ),
@@ -521,10 +522,15 @@ def test_add_event_series_dates_takes_exactly_one_shape() -> None:
     sdk.event_series.add_event_series_dates(
         "ev_1", schedule={"rule": "daily", "from": "2026-12-01", "count": 2, "times": ["20:00"]}
     )
-    assert len(calls) == 1
+    with pytest.raises(ValueError, match="exactly one"):
+        sdk.event_series.add_event_series_dates("ev_1", dates=["2026-12-01T19:30"], retry_failed=True)
+    sdk.event_series.add_event_series_dates("ev_1", retry_failed=True)
+    assert len(calls) == 2
     assert json.loads(calls[0].data) == {
         "schedule": {"rule": "daily", "from": "2026-12-01", "count": 2, "times": ["20:00"]}
     }
+    # Make again the dates that failed to be made.
+    assert json.loads(calls[1].data) == {"retryFailed": True}
 
 
 def _flaky(status: int, calls: list[Any]) -> Callable[[Any, float], FakeResponse]:

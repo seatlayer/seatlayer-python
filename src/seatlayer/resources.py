@@ -1650,6 +1650,7 @@ class Seasons:
         checkout_mode: Literal["seatlayer", "server"] | None = None,
         transfer_cutoff_hours: int | None | _Unset = _UNSET,
         return_cutoff_hours: int | None | _Unset = _UNSET,
+        audience: Literal["embed_only", "public"] | None = None,
     ) -> Any:
         """Rename a draft, or set how the Season sells.
 
@@ -1657,6 +1658,8 @@ class Seasons:
         undecided and is fixed once a live booking exists. The cutoffs are hours
         before a date starts (0 to 720) after which its tickets can no longer be
         sent to others, or a seat given back; ``None`` means until it starts.
+        ``audience="public"`` lists the Season on your SeatLayer website; an
+        ended Season cannot become public (``409 sales_ended``).
         """
         body: dict[str, Any] = {"expectedRevision": expected_revision}
         if name is not None:
@@ -1664,7 +1667,7 @@ class Seasons:
         if edition is not _UNSET:
             body["edition"] = edition
         body.update(_fields(
-            (("checkoutMode", checkout_mode),),
+            (("checkoutMode", checkout_mode), ("audience", audience)),
             (
                 ("transferCutoffHours", transfer_cutoff_hours),
                 ("returnCutoffHours", return_cutoff_hours),
@@ -1739,6 +1742,13 @@ class Seasons:
         )
 
     def open_season_sales(self, season_key: str, expected_revision: int) -> Any:
+        """Open sales. Answers ``{"season": ..., "warnings": [...]}``.
+
+        ``warnings`` says what is advised but not required, such as
+        ``checkout_test_missing`` until a checkout test or rehearsal has passed.
+        Refused with ``409 plan_not_published`` or ``409 checkout_mode_not_chosen``
+        until a package is published and a checkout mode is chosen.
+        """
         return self._sales(season_key, "open", expected_revision)
 
     def pause_season_sales(self, season_key: str, expected_revision: int) -> Any:
@@ -1961,15 +1971,16 @@ class Seasons:
         starts_at: int | None = None,
         name: str | None = None,
         idempotency_key: str | None = None,
-        refund: Literal["none", "per_date", "full"] | None = None,
+        refund: Literal["none", "per_date"] | None = None,
         reason: str | None = None,
     ) -> Any:
         """Amend one date of a published Season.
 
         ``postpone`` keeps the date with no new time yet; ``cancel`` takes it
-        off sale for good. With ``cancel`` only, ``refund`` refunds the date's
-        SeatLayer orders as a job (the answer's ``refundJob``), and ``reason``
-        is kept on the job.
+        off sale for good. With ``cancel`` only, ``refund="per_date"`` refunds
+        each order's share of the date as a job (the answer's ``refundJob``),
+        and ``reason`` is kept on the job. A whole-order refund is the order
+        refund.
         """
         body: dict[str, Any] = {"eventKey": event_key, "kind": kind}
         if starts_at is not None:
@@ -2491,14 +2502,15 @@ class Seasons:
         self,
         season_key: str,
         event_key: str,
-        amount: Literal["per_date", "full"],
+        amount: Literal["per_date"],
         reason: str | None = None,
         idempotency_key: str | None = None,
     ) -> Any:
         """Refund every SeatLayer order holding a cancelled date, as a job.
 
-        ``per_date`` refunds the date's share of each order (rounded down);
-        ``full`` refunds what is left of each order. Answers ``{"job": ...}``;
+        ``per_date`` refunds the date's share of each order (rounded down).
+        ``full`` is refused (``422 date_refund_per_date_only``): refund a whole
+        order with the order refund. Answers ``{"job": ...}``;
         follow it with :meth:`retrieve_season_bulk_job`. Retried safely with one
         Idempotency-Key, which replays the same job.
         """
@@ -2705,15 +2717,20 @@ class Orders:
         to: int | None = None,
         cursor: str | None = None,
         limit: int | None = None,
+        holder_ref: str | None = None,
     ) -> Any:
         """One page of orders across events and seasons.
 
         ``from_`` and ``to`` bound the creation time, in epoch milliseconds; they are
-        sent as ``from`` and ``to``.
+        sent as ``from`` and ``to``. ``holder_ref`` lists one holder's orders: the
+        season order with that id and renewals offered to that reference. Each
+        order has ``holderRef`` and ``customerId``; ``buyer.email`` is ``None``
+        for a box office sale taken without one.
         """
         return self._http.get("/v1/orders", query={
             "eventKey": event_key,
             "seasonKey": season_key,
+            "holderRef": holder_ref,
             "status": status,
             "from": from_,
             "to": to,
@@ -2884,18 +2901,24 @@ class EventSeries:
         schedule: dict[str, Any] | None = None,
         dates: Sequence[str] | None = None,
         idempotency_key: str | None = None,
+        retry_failed: bool = False,
     ) -> Any:
         """Add dates to an event series, copied from its first date.
 
-        Give exactly one of ``schedule`` (as for ``create_event_series``) or
-        ``dates``, exact moments as ``"YYYY-MM-DDTHH:MM"`` in the series' zone.
+        Give exactly one of ``schedule`` (as for ``create_event_series``),
+        ``dates`` (exact moments as ``"YYYY-MM-DDTHH:MM"`` in the series' zone),
+        or ``retry_failed=True`` to make again every date that failed to be made
+        (up to 100, as in ``job.failedDates``; ``422 nothing_to_retry`` when
+        none did, ``409 series_busy`` while another change runs).
         """
-        # The API takes one shape or the other; failing here names the mistake
-        # instead of a 400 after the round trip.
-        if (schedule is None) == (dates is None):
-            raise ValueError("give exactly one of schedule or dates")
+        # The API takes one shape; failing here names the mistake instead of a
+        # 400 after the round trip.
+        if (schedule is not None) + (dates is not None) + bool(retry_failed) != 1:
+            raise ValueError("give exactly one of schedule, dates or retry_failed")
         body: dict[str, Any] = (
-            {"schedule": schedule} if schedule is not None else {"dates": list(dates or ())}
+            {"schedule": schedule} if schedule is not None
+            else {"dates": list(dates)} if dates is not None
+            else {"retryFailed": True}
         )
         return self._http.post_with_header_replay(
             self._path(event_key, "/dates"), body=body, idempotency_key=idempotency_key

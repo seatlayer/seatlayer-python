@@ -387,7 +387,8 @@ def test_price_types_sale_settings_holder_contacts_and_date_cancels_reach_the_wi
         ],
     )
     seasons.update_season(
-        "sea_1", 3, checkout_mode="seatlayer", transfer_cutoff_hours=24, return_cutoff_hours=None
+        "sea_1", 3, checkout_mode="seatlayer", transfer_cutoff_hours=24, return_cutoff_hours=None,
+        audience="public",
     )
     seasons.update_season("sea_1", 4, name="Renamed")
     seasons.create_season_holder_import(
@@ -404,7 +405,7 @@ def test_price_types_sale_settings_holder_contacts_and_date_cancels_reach_the_wi
         idempotency_key="night-3-storm",
     )
     seasons.create_season_amendment("sea_1", "ev_1", "postpone")
-    seasons.refund_season_performance("sea_1", "ev_1", "full")
+    seasons.refund_season_performance("sea_1", "ev_1", "per_date")
 
     assert [json.loads(call.data) for call in calls] == [
         {"prices": [
@@ -412,7 +413,7 @@ def test_price_types_sale_settings_holder_contacts_and_date_cancels_reach_the_wi
             {"categoryKey": "stalls", "priceTypeKey": "child", "unitPrice": 9000},
         ]},
         {
-            "expectedRevision": 3, "checkoutMode": "seatlayer",
+            "expectedRevision": 3, "checkoutMode": "seatlayer", "audience": "public",
             "transferCutoffHours": 24, "returnCutoffHours": None,
         },
         {"expectedRevision": 4, "name": "Renamed"},
@@ -423,7 +424,7 @@ def test_price_types_sale_settings_holder_contacts_and_date_cancels_reach_the_wi
         }]},
         {"eventKey": "ev_night_3", "kind": "cancel", "refund": "per_date", "reason": "Storm"},
         {"eventKey": "ev_1", "kind": "postpone"},
-        {"amount": "full"},
+        {"amount": "per_date"},
     ]
     assert calls[4].get_header("Idempotency-key") == "night-3-storm"
     # A refund without a caller key still gets one, so a retry replays the same job.

@@ -376,7 +376,7 @@ class TestRetry:
             {"status": 503, "body": {"error": "unavailable"}},
             {"status": 202, "body": {"job": {"jobId": "sbj_1"}}},
         ])
-        result = sdk.seasons.refund_season_performance("sea_1", "ev_1", "full")
+        result = sdk.seasons.refund_season_performance("sea_1", "ev_1", "per_date")
 
         assert result == {"job": {"jobId": "sbj_1"}}
         assert len(calls) == 2

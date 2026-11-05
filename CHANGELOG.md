@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+- Added 32 Season operations to `seatlayer.seasons` (now 80): performances, package prices,
+  plan edits and publish, checkout tests, occurrence returns and reclaims, holders, season order
+  refunds and cancellations, hosted renewals and renewal emails, sales and seat reports, and the
+  holders and orders CSV exports.
+- Added `seatlayer.holders` (holders, their tickets and transfers, and `list_customers`),
+  `seatlayer.orders` (orders across events and seasons, and one event's orders, refunds,
+  cancellations and CSV export) and `seatlayer.event_series` (create, list, retrieve, add dates,
+  update).
+- Added an event's sales settings to `seatlayer.events`: checkout choice, payment gateway, sales
+  readiness, preflight and transitions, booking fee, and discount codes.
+- Method names are the snake_case operation ids. 22 of the new mutations use exact header replay
+  (36 in all); the rest are sent once. CSV exports return text; the two 204 deletes return `None`.
+- Added 10 webhook event names: `series.created`, `series.dates_added`, `order.paid`,
+  `order.refunded`, `order.cancelled`, `customer.created`, `customer.email_changed`,
+  `season.ticket.transfer_sent`, `season.ticket.transferred`, `season.ticket.transfer_cancelled`.
+
 ## 0.8.0 (2026-09-10)
 
 - Added Event hosting regions: `region` on event create, the `EventHostingRegion` type, and `default_region` on workspace create and update. Events created without a region run in Western Europe.

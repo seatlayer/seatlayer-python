@@ -284,19 +284,21 @@ class Events:
         limit: int | None = None,
         cursor: str | None = None,
         counts: bool = True,
+        series_key: str | None = None,
     ) -> Any:
         """One page of events.
 
         Live availability ``counts`` cost one round-trip per event server-side.
         They are on by default because most callers want them; pass
         ``counts=False`` when paging a whole catalogue, where you almost
-        certainly do not.
+        certainly do not. ``series_key`` lists only the dates of one event series.
         """
         query: dict[str, Any] = {
             "workspaceId": workspace_id,
             "externalRef": external_ref,
             "limit": limit,
             "cursor": cursor,
+            "seriesKey": series_key,
         }
         if not counts:
             query["counts"] = "0"
@@ -308,6 +310,7 @@ class Events:
         external_ref: str | None = None,
         limit: int | None = None,
         counts: bool = False,
+        series_key: str | None = None,
     ) -> Iterator[dict[str, Any]]:
         """Every event, paging transparently.
 
@@ -316,7 +319,7 @@ class Events:
         """
         cursor: str | None = None
         while True:
-            page = self.list(workspace_id, external_ref, limit, cursor, counts)
+            page = self.list(workspace_id, external_ref, limit, cursor, counts, series_key)
             yield from page.get("events", [])
             cursor = page.get("nextCursor")
             if not cursor:
@@ -1629,12 +1632,29 @@ class Seasons:
         name: str | None = None,
         edition: str | None | _Unset = _UNSET,
         idempotency_key: str | None = None,
+        checkout_mode: Literal["seatlayer", "server"] | None = None,
+        transfer_cutoff_hours: int | None | _Unset = _UNSET,
+        return_cutoff_hours: int | None | _Unset = _UNSET,
     ) -> Any:
+        """Rename a draft, or set how the Season sells.
+
+        ``checkout_mode`` says who takes the money; it cannot go back to
+        undecided and is fixed once a live booking exists. The cutoffs are hours
+        before a date starts (0 to 720) after which its tickets can no longer be
+        sent to others, or a seat given back; ``None`` means until it starts.
+        """
         body: dict[str, Any] = {"expectedRevision": expected_revision}
         if name is not None:
             body["name"] = name
         if edition is not _UNSET:
             body["edition"] = edition
+        body.update(_fields(
+            (("checkoutMode", checkout_mode),),
+            (
+                ("transferCutoffHours", transfer_cutoff_hours),
+                ("returnCutoffHours", return_cutoff_hours),
+            ),
+        ))
         return self._http.mutation_with_header_replay(
             "PATCH", self._path(season_key), body=body, idempotency_key=idempotency_key
         )
@@ -1819,6 +1839,12 @@ class Seasons:
         dry_run: bool | None = None,
         idempotency_key: str | None = None,
     ) -> Any:
+        """Import incumbent holders.
+
+        Each row is ``{"rowId", "holderRef", "priorPlanActivationId",
+        "priorContractRef", "labels"}`` plus optional ``existingBookingRef``,
+        ``holderEmail`` and ``holderName``.
+        """
         body: dict[str, Any] = {
             "successorPlanActivationId": successor_plan_activation_id,
             "rows": list(rows),
@@ -1908,16 +1934,26 @@ class Seasons:
         self,
         season_key: str,
         event_key: str,
-        kind: Literal["reschedule", "replace", "cancel_exception"],
+        kind: Literal["reschedule", "replace", "cancel_exception", "postpone", "cancel"],
         starts_at: int | None = None,
         name: str | None = None,
         idempotency_key: str | None = None,
+        refund: Literal["none", "per_date", "full"] | None = None,
+        reason: str | None = None,
     ) -> Any:
+        """Amend one date of a published Season.
+
+        ``postpone`` keeps the date with no new time yet; ``cancel`` takes it
+        off sale for good. With ``cancel`` only, ``refund`` refunds the date's
+        SeatLayer orders as a job (the answer's ``refundJob``), and ``reason``
+        is kept on the job.
+        """
         body: dict[str, Any] = {"eventKey": event_key, "kind": kind}
         if starts_at is not None:
             body["startsAt"] = starts_at
         if name is not None:
             body["name"] = name
+        body.update(_fields((("refund", refund), ("reason", reason))))
         return self._http.post_with_header_replay(
             self._path(season_key, "/amendments"),
             body=body,
@@ -2118,7 +2154,9 @@ class Seasons:
         """Replace a package's price table.
 
         Each price is ``{"categoryKey": ..., "unitPrice": ...}`` with the unit
-        price in minor units.
+        price in minor units, plus an optional ``"priceTypeKey"``: ``adult``
+        (the default), ``child``, ``concession``, ``senior`` or ``student``.
+        Each category takes each type once.
         """
         body: dict[str, Any] = {"prices": list(prices)}
         if currency is not None:
@@ -2131,7 +2169,10 @@ class Seasons:
         )
 
     def list_season_prices(self, season_key: str) -> Any:
-        """List every package price table of the Season."""
+        """List every package price table of the Season.
+
+        Each price carries its ``priceTypeKey`` and ``priceTypeLabel``.
+        """
         return self._http.get(self._path(season_key, "/prices"))
 
     def attach_season_plan_performance(
@@ -2382,6 +2423,35 @@ class Seasons:
     def retrieve_season_seat_counts(self, season_key: str) -> Any:
         """Retrieve the season seats sold per package and per date."""
         return self._http.get(self._path(season_key, "/seat-counts"))
+
+    def refund_season_performance(
+        self,
+        season_key: str,
+        event_key: str,
+        amount: Literal["per_date", "full"],
+        reason: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        """Refund every SeatLayer order holding a cancelled date, as a job.
+
+        ``per_date`` refunds the date's share of each order (rounded down);
+        ``full`` refunds what is left of each order. Answers ``{"job": ...}``;
+        follow it with :meth:`retrieve_season_bulk_job`. Retried safely with one
+        Idempotency-Key, which replays the same job.
+        """
+        return self._http.post_with_header_replay(
+            self._path(season_key, f"/performances/{quote(event_key)}/refunds"),
+            body=_fields((("amount", amount), ("reason", reason))),
+            idempotency_key=idempotency_key,
+        )
+
+    def list_season_bulk_jobs(self, season_key: str) -> Any:
+        """List the Season's bulk jobs, newest first (100 at most)."""
+        return self._http.get(self._path(season_key, "/jobs"))
+
+    def retrieve_season_bulk_job(self, season_key: str, job_id: str) -> Any:
+        """Retrieve one bulk job with its counts and up to 500 failed items."""
+        return self._http.get(self._path(season_key, f"/jobs/{quote(job_id)}"))
 
 
 class Holders:

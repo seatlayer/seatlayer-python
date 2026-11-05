@@ -371,6 +371,17 @@ class TestRetry:
         # Same key on the retry, or the server would create two events.
         assert calls[0].get_header("Idempotency-key") == calls[1].get_header("Idempotency-key")
 
+    def test_bulk_refund_of_a_date_retries_with_one_key(self) -> None:
+        sdk, calls = make_client([
+            {"status": 503, "body": {"error": "unavailable"}},
+            {"status": 202, "body": {"job": {"jobId": "sbj_1"}}},
+        ])
+        result = sdk.seasons.refund_season_performance("sea_1", "ev_1", "full")
+
+        assert result == {"job": {"jobId": "sbj_1"}}
+        assert len(calls) == 2
+        assert calls[0].get_header("Idempotency-key") == calls[1].get_header("Idempotency-key")
+
     def test_template_instantiate_retries_but_release_mutations_do_not(self) -> None:
         template, template_calls = make_client([
             {"status": 503, "body": {"error": "unavailable"}},
@@ -523,6 +534,14 @@ class TestPagination:
         sdk, calls = make_client([{"status": 200, "body": {"events": []}}])
         list(sdk.events.list_all())
         assert "counts=0" in calls[0].full_url
+
+    def test_lists_one_event_series(self) -> None:
+        sdk, calls = make_client([{"status": 200, "body": {"events": []}}])
+        sdk.events.list(series_key="ser a/b", limit=10)
+        assert "seriesKey=ser+a%2Fb" in calls[0].full_url
+        sdk2, calls2 = make_client([{"status": 200, "body": {"events": []}}])
+        list(sdk2.events.list_all(series_key="ser_1"))
+        assert "seriesKey=ser_1" in calls2[0].full_url
 
     def test_single_page_keeps_counts(self) -> None:
         sdk, calls = make_client([{"status": 200, "body": {"events": []}}])

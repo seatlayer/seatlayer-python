@@ -160,6 +160,29 @@ class HttpClient:
             header_replay=True,
         )
 
+    def get_text(
+        self,
+        path: str,
+        query: dict[str, Any] | None = None,
+        accept: str = "text/csv",
+    ) -> str:
+        """Internal typed-operation path for reads whose success body is text, such as CSV.
+
+        Errors still arrive as JSON and map to the usual error classes.
+        """
+        text: str = self._request(
+            "GET",
+            path,
+            query=query,
+            body=None,
+            raw_body=None,
+            content_type=None,
+            idempotency_key=None,
+            header_replay=False,
+            text_accept=accept,
+        )
+        return text
+
     def _request(
         self,
         method: str,
@@ -170,6 +193,7 @@ class HttpClient:
         content_type: str | None,
         idempotency_key: str | None,
         header_replay: bool,
+        text_accept: str | None = None,
     ) -> Any:
         method = method.upper()
         url = self.base_url + path
@@ -180,7 +204,8 @@ class HttpClient:
 
         headers = {
             "Authorization": f"Bearer {self._secret_key}",
-            "Accept": "application/json",
+            # A text read still accepts JSON: that is how its errors arrive.
+            "Accept": f"{text_accept}, application/json" if text_accept else "application/json",
             "User-Agent": USER_AGENT,
         }
         if body is not None and raw_body is not None:
@@ -209,6 +234,8 @@ class HttpClient:
             try:
                 with self._transport(request, self._timeout) as response:
                     raw = response.read()
+                    if text_accept is not None:
+                        return raw.decode("utf-8")
                     if response.status == 204 or not raw:
                         return None
                     return json.loads(raw)

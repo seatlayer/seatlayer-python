@@ -13,6 +13,16 @@ WebhookEventName = Literal[
     "hold.extended",
     "event.created",
     "event.soldout",
+    "series.created",
+    "series.dates_added",
+    "order.paid",
+    "order.refunded",
+    "order.cancelled",
+    "customer.created",
+    "customer.email_changed",
+    "season.ticket.transfer_sent",
+    "season.ticket.transferred",
+    "season.ticket.transfer_cancelled",
 ]
 
 ManageCapability = Literal[

@@ -12,8 +12,8 @@ from seatlayer import SeatLayer
 
 
 class FakeResponse(io.BytesIO):
-    def __init__(self, status: int = 200, body: Any = None) -> None:
-        super().__init__(json.dumps(body or {}).encode())
+    def __init__(self, status: int = 200, body: Any = None, raw: bytes | None = None) -> None:
+        super().__init__(raw if raw is not None else json.dumps(body or {}).encode())
         self.status = status
 
     def __enter__(self) -> Self:
@@ -23,11 +23,18 @@ class FakeResponse(io.BytesIO):
         self.close()
 
 
-def test_maps_all_48_season_operations_and_replay_classes() -> None:
+CSV = "holder,email\r\nA. Fan,fan@example.com\r\n"
+
+
+def test_maps_all_80_season_operations_and_replay_classes() -> None:
     calls: list[Any] = []
 
     def transport(request: Any, _timeout: float) -> FakeResponse:
         calls.append(request)
+        if ".csv" in request.full_url:
+            return FakeResponse(raw=CSV.encode())
+        if request.method == "DELETE" and request.full_url.endswith("/plans/plan%2F1"):
+            return FakeResponse(204, raw=b"")
         return FakeResponse()
 
     seasons = SeatLayer("sk_test_abc", transport=transport).seasons
@@ -80,8 +87,64 @@ def test_maps_all_48_season_operations_and_replay_classes() -> None:
     seasons.replay_season_outbox(key, "occurrence/1")
     seasons.list_season_audit(key)
     seasons.export_season_support_snapshot(key)
+    # The 32 operations added for season sales, holders, orders and reports.
+    seasons.create_season_holder_import_from_season(
+        key, "sea/prev", "pa_1", dry_run=True, idempotency_key="from-season-1"
+    )
+    seasons.list_season_performances(key)
+    seasons.create_season_performances(
+        key,
+        "Match {n}",
+        "Europe/London",
+        "weekly",
+        first_starts_at=1767225600000,
+        count=3,
+        venue=None,
+        region="western-europe",
+        attach_to_plan_keys=["plan/1"],
+        idempotency_key="perf-1",
+    )
+    seasons.attach_season_performances(
+        key, ["ev_1", "ev_2"], attach_to_plan_keys=["plan/1"], idempotency_key="attach-1"
+    )
+    seasons.delete_season_performance(key, "ev/1", idempotency_key="perf-del-1")
+    seasons.update_season_plan(
+        key, "plan/1", name="Full season", event_keys=["ev_1"], idempotency_key="plan-upd-1"
+    )
+    deleted_plan = seasons.delete_season_plan(key, "plan/1")
+    seasons.publish_season(key)
+    seasons.create_season_checkout_test(key, plan_key="plan/1", quantity=2)
+    seasons.list_season_checkout_tests(key)
+    seasons.replace_season_package_prices(
+        key, "plan/1", [{"categoryKey": "A", "unitPrice": 5000}], currency="GBP"
+    )
+    seasons.list_season_prices(key)
+    seasons.attach_season_plan_performance(key, "plan/1", "ev/1")
+    seasons.delete_season_plan_performance(key, "plan/1", "ev/1")
+    seasons.mark_season_performance_past(key, "ev/1", force=True)
+    seasons.return_season_occurrence_inventory(
+        key, "ev/1", "ret_1", "order_1", "pa_1", ["A-1"], {"bookingActionId": "book_1"}
+    )
+    seasons.reclaim_season_occurrence_inventory(
+        key, "ev/1", "rec_1", "ret_1", "order_1", "pa_1", ["A-1"], {"renewalOfferId": "offer_1"}
+    )
+    seasons.list_season_holders(key, q="smith a/b", status="active", cursor="c/2", limit=25)
+    seasons.refund_season_order(key, "order/1", amount_minor=1500)
+    seasons.cancel_season_order(key, "order/1", "other", note="Duplicate", notify_buyer=False)
+    seasons.cancel_season_order_date(key, "order/1", "ev/1", action_id="date-cancel-1")
+    seasons.resend_season_order_tickets(key, "order/1", email="fan@example.com")
+    seasons.retrieve_season_hosted_renewals(key)
+    seasons.rotate_season_renewal_offer_link(key, "offer/1")
+    seasons.update_season_renewal_offer_contact(key, "offer/1", email="fan@example.com", name=None)
+    seasons.create_season_renewal_notices(key, offer_ids=["offer_1"])
+    seasons.resend_season_renewal_offer(key, "offer/1")
+    seasons.retrieve_season_sales_report(key)
+    seasons.retrieve_season_seats_report(key)
+    holders_csv = seasons.export_season_holders_csv(key, q="smith", status="active")
+    orders_csv = seasons.export_season_orders_csv(key)
+    seasons.retrieve_season_seat_counts(key)
 
-    assert len(calls) == 48
+    assert len(calls) == 80
     actual = [(call.method, call.full_url.removeprefix("https://api.seatlayer.io")) for call in calls]
     assert actual == [
         ("GET", "/v1/seasons?workspaceId=ws+1&structureState=draft&limit=20&cursor=c%2F1"),
@@ -132,13 +195,140 @@ def test_maps_all_48_season_operations_and_replay_classes() -> None:
         ("POST", "/v1/seasons/sea%2Fa/outbox/occurrence%2F1/replay"),
         ("GET", "/v1/seasons/sea%2Fa/audit"),
         ("GET", "/v1/seasons/sea%2Fa/export"),
+        ("POST", "/v1/seasons/sea%2Fa/imports/from-season"),
+        ("GET", "/v1/seasons/sea%2Fa/performances"),
+        ("POST", "/v1/seasons/sea%2Fa/performances"),
+        ("POST", "/v1/seasons/sea%2Fa/performances/attach"),
+        ("DELETE", "/v1/seasons/sea%2Fa/performances/ev%2F1"),
+        ("PATCH", "/v1/seasons/sea%2Fa/plans/plan%2F1"),
+        ("DELETE", "/v1/seasons/sea%2Fa/plans/plan%2F1"),
+        ("POST", "/v1/seasons/sea%2Fa/publish"),
+        ("POST", "/v1/seasons/sea%2Fa/checkout-tests"),
+        ("GET", "/v1/seasons/sea%2Fa/checkout-tests"),
+        ("PUT", "/v1/seasons/sea%2Fa/plans/plan%2F1/prices"),
+        ("GET", "/v1/seasons/sea%2Fa/prices"),
+        ("POST", "/v1/seasons/sea%2Fa/plans/plan%2F1/performances"),
+        ("DELETE", "/v1/seasons/sea%2Fa/plans/plan%2F1/performances/ev%2F1"),
+        ("POST", "/v1/seasons/sea%2Fa/performances/ev%2F1/past"),
+        ("POST", "/v1/seasons/sea%2Fa/occurrences/ev%2F1/returns"),
+        ("POST", "/v1/seasons/sea%2Fa/occurrences/ev%2F1/reclaims"),
+        ("GET", "/v1/seasons/sea%2Fa/holders?q=smith+a%2Fb&status=active&cursor=c%2F2&limit=25"),
+        ("POST", "/v1/seasons/sea%2Fa/orders/order%2F1/refund"),
+        ("POST", "/v1/seasons/sea%2Fa/orders/order%2F1/cancel"),
+        ("POST", "/v1/seasons/sea%2Fa/orders/order%2F1/dates/ev%2F1/cancel"),
+        ("POST", "/v1/seasons/sea%2Fa/orders/order%2F1/resend"),
+        ("GET", "/v1/seasons/sea%2Fa/renewal-hosted"),
+        ("POST", "/v1/seasons/sea%2Fa/renewal-offers/offer%2F1/link"),
+        ("POST", "/v1/seasons/sea%2Fa/renewal-offers/offer%2F1/contact"),
+        ("POST", "/v1/seasons/sea%2Fa/renewal-notices"),
+        ("POST", "/v1/seasons/sea%2Fa/renewal-offers/offer%2F1/resend"),
+        ("GET", "/v1/seasons/sea%2Fa/reports/sales"),
+        ("GET", "/v1/seasons/sea%2Fa/reports/seats"),
+        ("GET", "/v1/seasons/sea%2Fa/reports/holders.csv?q=smith&status=active"),
+        ("GET", "/v1/seasons/sea%2Fa/reports/orders.csv"),
+        ("GET", "/v1/seasons/sea%2Fa/seat-counts"),
     ]
     assert calls[26].data is None
 
-    replay_indexes = {2, 4, 5, 10, 18, 27, 29, 38}
+    bodies = [None if call.data is None else json.loads(call.data) for call in calls[48:]]
+    assert bodies == [
+        {"sourceSeasonId": "sea/prev", "successorPlanActivationId": "pa_1", "dryRun": True},
+        None,
+        {
+            "titlePattern": "Match {n}",
+            "timezone": "Europe/London",
+            "repeat": "weekly",
+            "firstStartsAt": 1767225600000,
+            "count": 3,
+            "venue": None,
+            "region": "western-europe",
+            "attachToPlanKeys": ["plan/1"],
+        },
+        {"eventKeys": ["ev_1", "ev_2"], "attachToPlanKeys": ["plan/1"]},
+        None,
+        {"name": "Full season", "eventKeys": ["ev_1"]},
+        None,
+        None,
+        {"planKey": "plan/1", "quantity": 2},
+        None,
+        {"prices": [{"categoryKey": "A", "unitPrice": 5000}], "currency": "GBP"},
+        None,
+        {"eventKey": "ev/1"},
+        None,
+        {"force": True},
+        {
+            "actionId": "ret_1",
+            "bookingRef": "order_1",
+            "planActivationId": "pa_1",
+            "labels": ["A-1"],
+            "source": {"bookingActionId": "book_1"},
+        },
+        {
+            "actionId": "rec_1",
+            "returnActionId": "ret_1",
+            "bookingRef": "order_1",
+            "planActivationId": "pa_1",
+            "labels": ["A-1"],
+            "source": {"renewalOfferId": "offer_1"},
+        },
+        None,
+        {"amountMinor": 1500},
+        {"reason": "other", "note": "Duplicate", "notifyBuyer": False},
+        {"actionId": "date-cancel-1"},
+        {"email": "fan@example.com"},
+        None,
+        None,
+        {"email": "fan@example.com", "name": None},
+        {"offerIds": ["offer_1"]},
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    ]
+
+    # CSV exports hand back the body as text; the 204 delete hands back nothing.
+    assert holders_csv == CSV
+    assert orders_csv == CSV
+    assert deleted_plan is None
+    assert calls[77].get_header("Accept") == "text/csv, application/json"
+
+    caller_keys = {
+        48: "from-season-1", 50: "perf-1", 51: "attach-1", 52: "perf-del-1", 53: "plan-upd-1",
+    }
+    for index, expected_key in caller_keys.items():
+        assert calls[index].get_header("Idempotency-key") == expected_key
+
+    replay_indexes = {
+        2, 4, 5, 10, 18, 27, 29, 38,
+        48, 50, 51, 52, 53, 54, 55, 56, 58, 60, 61, 62, 66, 67, 68,
+    }
     for index, request in enumerate(calls):
         headers = {name.lower(): value for name, value in request.header_items()}
         if index in replay_indexes:
             assert "idempotency-key" in headers
         else:
             assert "idempotency-key" not in headers
+
+
+def test_season_optional_bodies_are_sent_only_when_set() -> None:
+    calls: list[Any] = []
+
+    def transport(request: Any, _timeout: float) -> FakeResponse:
+        calls.append(request)
+        return FakeResponse()
+
+    seasons = SeatLayer("sk_test_abc", transport=transport).seasons
+    seasons.create_season_checkout_test("sea_1")
+    seasons.refund_season_order("sea_1", "ord_1")
+    seasons.cancel_season_order_date("sea_1", "ord_1", "ev_1")
+    seasons.resend_season_order_tickets("sea_1", "ord_1")
+    seasons.create_season_renewal_notices("sea_1")
+    # Required bodies whose fields are all optional still send an object.
+    seasons.mark_season_performance_past("sea_1", "ev_1")
+    seasons.update_season_plan("sea_1", "plan_1")
+    seasons.update_season_renewal_offer_contact("sea_1", "offer_1")
+
+    assert [call.data for call in calls[:5]] == [None] * 5
+    assert [json.loads(call.data) for call in calls[5:]] == [{}, {}, {}]

@@ -14,7 +14,10 @@ from .resources import (
     Channels,
     Charts,
     Events,
+    EventSeries,
+    Holders,
     Inventory,
+    Orders,
     PerformanceGroups,
     Seasons,
     Sessions,
@@ -49,6 +52,9 @@ class SeatLayer:
         self.inventory = Inventory(self._http)
         self.performance_groups = PerformanceGroups(self._http)
         self.seasons = Seasons(self._http)
+        self.holders = Holders(self._http)
+        self.orders = Orders(self._http)
+        self.event_series = EventSeries(self._http)
         self.channels = Channels(self._http)
         self.sessions = Sessions(self._http)
         self.webhooks = Webhooks(self._http)

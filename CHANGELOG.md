@@ -44,6 +44,8 @@
 - `add_event_series_dates` takes `retry_failed=True` to make the failed dates again (`409 series_busy`, `422 nothing_to_retry`).
 - `list_orders` takes `holder_ref`; orders carry `holderRef` and `customerId`, and `buyer.email` can be `None` (a box office sale with no email).
 - Season holds, give-backs and date cancels can refuse with `performance_cancelled`, `refund_not_started` (503), `missing_manage_capability` (403) or `invalid_refund`; a holder's status can be `reserved`; hosted renewal readiness carries `missingPrices`.
+- `create_event_series` takes `from_event_key` (last argument): an event you already set up becomes the first date under its own key, and every other date is a copy of it. `name` and `chart_key` are then left out. It refuses with `404 event_not_found`, or `422 event_has_no_date`, `event_in_season`, `event_in_performance_group`, `event_in_series` or `invalid_request`.
+- Every date of an event series carries the series' plain name (`Hamlet`, not `Hamlet · 3 Nov`); tell dates apart by `startsAt`. `update_event_series` renames each date that carries the series name, and a series name cannot hold `{n}`, `{date}` or `{time}`.
 
 ## 0.8.0 (2026-09-10)
 

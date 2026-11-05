@@ -511,6 +511,20 @@ def test_optional_bodies_are_omitted_when_empty() -> None:
     assert json.loads(calls[4].data) == {}
 
 
+def test_create_event_series_from_an_event() -> None:
+    sdk, calls = recorder()
+    schedule = {"rule": "daily", "from": "2026-11-06", "until": "2026-11-19", "times": ["14:00", "17:30", "20:15"]}
+    sdk.event_series.create_event_series(
+        schedule=schedule, from_event_key="lighthouse-keeper", idempotency_key="series-2"
+    )
+    assert json.loads(calls[0].data) == {"fromEventKey": "lighthouse-keeper", "schedule": schedule}
+    with pytest.raises(ValueError, match="name and chart_key, or from_event_key"):
+        sdk.event_series.create_event_series(schedule=schedule)
+    with pytest.raises(ValueError, match="schedule is required"):
+        sdk.event_series.create_event_series(from_event_key="lighthouse-keeper")
+    assert len(calls) == 1
+
+
 def test_add_event_series_dates_takes_exactly_one_shape() -> None:
     sdk, calls = recorder()
     with pytest.raises(ValueError, match="exactly one"):

@@ -2860,29 +2860,45 @@ class EventSeries:
 
     def create_event_series(
         self,
-        name: str,
-        chart_key: str,
-        schedule: dict[str, Any],
+        name: str | None = None,
+        chart_key: str | None = None,
+        schedule: dict[str, Any] | None = None,
         timezone: str | None = None,
         venue: str | None = None,
         duration_minutes: int | None = None,
         dry_run: bool | None = None,
         idempotency_key: str | None = None,
+        from_event_key: str | None = None,
     ) -> Any:
         """Plan an event series from a schedule, or make it as a job.
 
         ``schedule`` takes ``rule`` (``"none"``, ``"daily"``, ``"weekly"``,
         ``"biweekly"`` or ``"dates"``) and ``times`` (``"HH:MM"``), plus ``from``,
         ``until`` or ``count``, ``skip`` and ``dates`` as the rule needs.
-        ``dry_run=True`` answers the dates and creates nothing.
+        ``dry_run=True`` answers the dates and creates nothing. Every date
+        carries ``name`` as its name.
+
+        Give ``name`` and ``chart_key``, or ``from_event_key``: an event you
+        already set up becomes the first date under its own key, and every other
+        date is a copy of it (floor plan, prices, checkout, poster and its own
+        seat blocks, none of its orders, holds or sales). The series then takes
+        the event's name, zone and floor plan; ``chart_key``, ``venue`` and
+        ``duration_minutes`` are refused with it.
         """
+        if schedule is None:
+            raise ValueError("schedule is required")
+        if from_event_key is None and (name is None or chart_key is None):
+            raise ValueError("give name and chart_key, or from_event_key")
         body = _fields((
+            ("fromEventKey", from_event_key),
+            ("name", name),
+            ("chartKey", chart_key),
             ("timezone", timezone),
             ("venue", venue),
             ("durationMinutes", duration_minutes),
             ("dryRun", dry_run),
         ))
-        body.update({"name": name, "chartKey": chart_key, "schedule": schedule})
+        body["schedule"] = schedule
         return self._http.post_with_header_replay(
             "/v1/event-series", body=body, idempotency_key=idempotency_key
         )

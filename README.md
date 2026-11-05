@@ -88,10 +88,10 @@ live ones; crossing them returns `403 mode_mismatch`, surfaced as `SeatLayerAuth
 
 ## Fixed Renewable Seasons
 
-`seatlayer.seasons` exposes all 83 trusted organizer operations: catalogue and packages,
+`seatlayer.seasons` exposes all 86 trusted organizer operations: catalogue and packages,
 performances, package prices (per price type: `adult`, `child`, `concession`, `senior`,
 `student`), sales, checkout tests, buyer access and booking, holder imports, holders, season
-orders, renewals and hosted renewals, occurrences (postpone and cancel a date), bulk refunds of a
+orders, renewals, hosted renewals and renewal checkouts, occurrences (postpone and cancel a date), bulk refunds of a
 cancelled date and their jobs, reports, CSV exports, audit, outbox, and support export.
 
 After the test hold/book/cancel journey and matching webhook deliveries,
@@ -122,6 +122,26 @@ identities. Only header-replay mutations retry automatically.
 seatlayer = SeatLayer(os.environ["SEATLAYER_SECRET_KEY"])
 if os.environ.get("ENV") == "production" and seatlayer.mode != "live":
     raise RuntimeError("Refusing to boot production against test-mode seating data.")
+```
+
+When SeatLayer takes the season's payments, renew a holder with no hosted page: read the price
+with `retrieve_season_renewal_quote`, then start a checkout and send the holder to
+`payment["url"]`. For a renewal taken by phone or at the box office, record the holder's intent
+with `create_season_renewal_intent` before you commit the offer. A decline can carry the holder's
+reason.
+
+```python
+quote = seatlayer.seasons.retrieve_season_renewal_quote(season_key, offer_id)
+if quote["problem"] is None:
+    started = seatlayer.seasons.create_season_renewal_checkout(
+        season_key,
+        offer_id,
+        "https://tickets.yourclub.example/renewed",
+        idempotency_key=f"renew-{offer_id}",
+    )
+    redirect(started["payment"]["url"])
+
+seatlayer.holders.decline_holder_renewal_offer("holder_123", offer_id, reason="Moving away")
 ```
 
 ## Holders, orders, sales settings and event series
@@ -360,7 +380,7 @@ requests.
 
 ## Reliability
 
-**Retries and idempotency.** Reads retry 408, 429 and 5xx responses with backoff. Thirty-eight
+**Retries and idempotency.** Reads retry 408, 429 and 5xx responses with backoff. Forty
 mutations opt into exact header replay: `charts.create`, `charts.copy`,
 `templates.instantiate_template`, `events.create`, `workspaces.create`,
 `performance_groups.create`; on `seasons`, `create_season`, `update_season`, `delete_season`,
@@ -371,8 +391,9 @@ mutations opt into exact header replay: `charts.create`, `charts.copy`,
 `duplicate_season_to_live`, `create_season_holder_import`,
 `create_season_holder_import_from_season`, `create_season_renewal_offers`,
 `create_season_amendment`, `refund_season_order`, `cancel_season_order`,
-`cancel_season_order_date`, and `refund_season_performance`; `holders.update_holder`, `holders.create_holder_transfer`, and
-`holders.create_holder_return`; `orders.refund_event_order` and `orders.cancel_event_order`; and
+`cancel_season_order_date`, `refund_season_performance`, and `create_season_renewal_checkout`;
+`holders.update_holder`, `holders.create_holder_transfer`, `holders.create_holder_return`, and
+`holders.create_holder_renewal_checkout`; `orders.refund_event_order` and `orders.cancel_event_order`; and
 `event_series.create_event_series`, `event_series.add_event_series_dates`, and
 `event_series.update_event_series`. The SDK generates one `Idempotency-Key` (or uses yours) and
 reuses it for every attempt. All remaining SDK mutations are sent once; some have a server-side domain idempotency
@@ -386,7 +407,7 @@ before trying again.
 ```python
 SeatLayer(
     os.environ["SEATLAYER_SECRET_KEY"],
-    max_retries=3,   # attempts for reads and the 38 exact-header-replay mutations
+    max_retries=3,   # attempts for reads and the 40 exact-header-replay mutations
     timeout=30.0,    # seconds, per attempt
 )
 ```
@@ -417,8 +438,8 @@ holder, order, renewal, occurrence, reporting, export, outbox, and support opera
 | `webhooks` | `list` `create` `update` `delete` `list_deliveries` |
 | `workspaces` | `list` `create` `retrieve` `update` |
 | `performance_groups` | `list` `create` `retrieve` `delete` `activate` `close` `retrieve_lifecycle` `create_buyer_access_session` `list_buyer_access_sessions` `revoke_buyer_access_session` `retrieve_hold` `book_hold` `retrieve_booking` |
-| `seasons` | 83 operations for catalogue and Plan lifecycle, performances, package prices, sales windows, checkout tests, buyer access and booking, holder imports, holders, season orders, renewals and hosted renewals, occurrence amendments, returns and reclaims, bulk refunds and jobs, reports, CSV exports, audit, outbox, and support export |
-| `holders` | `list_customers` `retrieve_holder` `update_holder` `revoke_holder_sessions` `list_holder_seasons` `list_holder_tickets` `retrieve_holder_ticket` `create_holder_transfer` `list_holder_transfers` `cancel_holder_transfer` `accept_holder_transfer` `create_holder_return` |
+| `seasons` | 86 operations for catalogue and Plan lifecycle, performances, package prices, sales windows, checkout tests, buyer access and booking, holder imports, holders, season orders, renewals, hosted renewals and renewal checkouts, occurrence amendments, returns and reclaims, bulk refunds and jobs, reports, CSV exports, audit, outbox, and support export |
+| `holders` | `list_customers` `retrieve_holder` `update_holder` `revoke_holder_sessions` `list_holder_seasons` `list_holder_tickets` `retrieve_holder_ticket` `create_holder_transfer` `list_holder_transfers` `cancel_holder_transfer` `accept_holder_transfer` `create_holder_return` `create_holder_renewal_checkout` `decline_holder_renewal_offer` |
 | `orders` | `list_orders` `retrieve_order` `list_order_tickets` `list_event_orders` `retrieve_event_order` `export_event_orders_csv` `refund_event_order` `cancel_event_order` `resend_event_order_tickets` |
 | `event_series` | `create_event_series` `list_event_series` `retrieve_event_series` `add_event_series_dates` `update_event_series` |
 

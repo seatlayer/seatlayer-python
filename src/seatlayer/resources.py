@@ -71,6 +71,21 @@ def _fields(
     return body
 
 
+def _renewal_checkout_body(
+    return_url: str,
+    buyer_email: str | None,
+    buyer_name: str | None,
+    provider: str | None,
+) -> dict[str, Any]:
+    body: dict[str, Any] = {"returnUrl": return_url}
+    body.update(_fields((
+        ("buyerEmail", buyer_email),
+        ("buyerName", buyer_name),
+        ("provider", provider),
+    )))
+    return body
+
+
 def _order_cancel_body(
     reason: OrderCancelReason,
     note: str | None,
@@ -1917,9 +1932,17 @@ class Seasons:
             },
         )
 
-    def decline_season_renewal_offer(self, season_key: str, offer_id: str) -> Any:
+    def decline_season_renewal_offer(
+        self, season_key: str, offer_id: str, reason: str | None = None
+    ) -> Any:
+        """Decline an offer and release its seats at once.
+
+        ``reason`` (1 to 200 characters) is kept on the offer as ``declineReason``;
+        a repeated decline keeps the first reason.
+        """
         return self._http.post(
-            self._path(season_key, f"/renewal-offers/{quote(offer_id)}/decline"), body={}
+            self._path(season_key, f"/renewal-offers/{quote(offer_id)}/decline"),
+            body=_fields((("reason", reason),)),
         )
 
     def release_season_renewal_offer(self, season_key: str, offer_id: str) -> Any:
@@ -2396,6 +2419,46 @@ class Seasons:
             self._path(season_key, f"/renewal-offers/{quote(offer_id)}/resend")
         )
 
+    def retrieve_season_renewal_quote(self, season_key: str, offer_id: str) -> Any:
+        """What renewing an offer costs, and whether SeatLayer checkout can take it now.
+
+        ``problem`` is ``None`` when it can; otherwise it says why not.
+        """
+        return self._http.get(
+            self._path(season_key, f"/renewal-offers/{quote(offer_id)}/quote")
+        )
+
+    def create_season_renewal_intent(self, season_key: str, offer_id: str) -> Any:
+        """Record that the holder means to renew, for a renewal taken by phone or at the box office.
+
+        Your own checkout can then commit the offer. A repeat answers the same offer.
+        """
+        return self._http.post(
+            self._path(season_key, f"/renewal-offers/{quote(offer_id)}/intent")
+        )
+
+    def create_season_renewal_checkout(
+        self,
+        season_key: str,
+        offer_id: str,
+        return_url: str,
+        buyer_email: str | None = None,
+        buyer_name: str | None = None,
+        provider: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        """Start a SeatLayer checkout that renews an offer, with no hosted page.
+
+        Send the buyer to ``payment["url"]``; paying renews the offer. ``return_url`` must be
+        on one of the organization's allowed domains. A repeat with the same key answers
+        with the same order.
+        """
+        return self._http.post_with_header_replay(
+            self._path(season_key, f"/renewal-offers/{quote(offer_id)}/checkout"),
+            body=_renewal_checkout_body(return_url, buyer_email, buyer_name, provider),
+            idempotency_key=idempotency_key,
+        )
+
     def retrieve_season_sales_report(self, season_key: str) -> Any:
         """Retrieve season money, seats, holders and renewals as totals."""
         return self._http.get(self._path(season_key, "/reports/sales"))
@@ -2455,7 +2518,7 @@ class Seasons:
 
 
 class Holders:
-    """Season ticket holders, their tickets, transfers and returns, and the customers behind them.
+    """Season ticket holders, their tickets, transfers, returns and renewals, and their customers.
 
     Method names are the snake_case form of the public operation ids.
     """
@@ -2585,6 +2648,41 @@ class Holders:
             self._path(holder_ref, "/returns"),
             body={"ticketIds": list(ticket_ids)},
             idempotency_key=idempotency_key,
+        )
+
+    def create_holder_renewal_checkout(
+        self,
+        holder_ref: str,
+        offer_id: str,
+        return_url: str,
+        buyer_email: str | None = None,
+        buyer_name: str | None = None,
+        provider: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        """Start a SeatLayer checkout that renews one of a holder's offers.
+
+        The offer is the ``renewalOffer`` on ``list_holder_seasons``. Send the buyer to
+        ``payment["url"]``. A repeat with the same key answers with the same order.
+        """
+        return self._http.post_with_header_replay(
+            self._path(holder_ref, f"/renewal-offers/{quote(offer_id)}/checkout"),
+            body=_renewal_checkout_body(return_url, buyer_email, buyer_name, provider),
+            idempotency_key=idempotency_key,
+        )
+
+    def decline_holder_renewal_offer(
+        self, holder_ref: str, offer_id: str, reason: str | None = None
+    ) -> Any:
+        """Decline one of a holder's renewal offers and release its seats.
+
+        ``reason`` (1 to 200 characters) is kept on the offer as ``declineReason``.
+        Declining again answers the same offer, with the first reason.
+        """
+        body = _fields((("reason", reason),))
+        return self._http.post(
+            self._path(holder_ref, f"/renewal-offers/{quote(offer_id)}/decline"),
+            body=body or None,
         )
 
 

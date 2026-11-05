@@ -26,7 +26,7 @@ class FakeResponse(io.BytesIO):
 CSV = "holder,email\r\nA. Fan,fan@example.com\r\n"
 
 
-def test_maps_all_83_season_operations_and_replay_classes() -> None:
+def test_maps_all_86_season_operations_and_replay_classes() -> None:
     calls: list[Any] = []
 
     def transport(request: Any, _timeout: float) -> FakeResponse:
@@ -149,8 +149,20 @@ def test_maps_all_83_season_operations_and_replay_classes() -> None:
     )
     seasons.list_season_bulk_jobs(key)
     seasons.retrieve_season_bulk_job(key, "job/1")
+    # Renewal by API: the quote, the phone or box office intent, and the checkout.
+    seasons.retrieve_season_renewal_quote(key, "offer/1")
+    seasons.create_season_renewal_intent(key, "offer/1")
+    seasons.create_season_renewal_checkout(
+        key,
+        "offer/1",
+        "https://tickets.example/renewed",
+        buyer_email="ana@example.com",
+        buyer_name="Ana Silva",
+        provider="stripe",
+        idempotency_key="renew-1",
+    )
 
-    assert len(calls) == 83
+    assert len(calls) == 86
     actual = [(call.method, call.full_url.removeprefix("https://api.seatlayer.io")) for call in calls]
     assert actual == [
         ("GET", "/v1/seasons?workspaceId=ws+1&structureState=draft&limit=20&cursor=c%2F1"),
@@ -236,6 +248,9 @@ def test_maps_all_83_season_operations_and_replay_classes() -> None:
         ("POST", "/v1/seasons/sea%2Fa/performances/ev%2F1/refunds"),
         ("GET", "/v1/seasons/sea%2Fa/jobs"),
         ("GET", "/v1/seasons/sea%2Fa/jobs/job%2F1"),
+        ("GET", "/v1/seasons/sea%2Fa/renewal-offers/offer%2F1/quote"),
+        ("POST", "/v1/seasons/sea%2Fa/renewal-offers/offer%2F1/intent"),
+        ("POST", "/v1/seasons/sea%2Fa/renewal-offers/offer%2F1/checkout"),
     ]
     assert calls[26].data is None
 
@@ -298,6 +313,14 @@ def test_maps_all_83_season_operations_and_replay_classes() -> None:
         {"amount": "per_date", "reason": "Storm"},
         None,
         None,
+        None,
+        None,
+        {
+            "returnUrl": "https://tickets.example/renewed",
+            "buyerEmail": "ana@example.com",
+            "buyerName": "Ana Silva",
+            "provider": "stripe",
+        },
     ]
 
     # CSV exports hand back the body as text; the 204 delete hands back nothing.
@@ -308,14 +331,14 @@ def test_maps_all_83_season_operations_and_replay_classes() -> None:
 
     caller_keys = {
         48: "from-season-1", 50: "perf-1", 51: "attach-1", 52: "perf-del-1", 53: "plan-upd-1",
-        80: "refund-date-1",
+        80: "refund-date-1", 85: "renew-1",
     }
     for index, expected_key in caller_keys.items():
         assert calls[index].get_header("Idempotency-key") == expected_key
 
     replay_indexes = {
         2, 4, 5, 10, 18, 27, 29, 38,
-        48, 50, 51, 52, 53, 54, 55, 56, 58, 60, 61, 62, 66, 67, 68, 80,
+        48, 50, 51, 52, 53, 54, 55, 56, 58, 60, 61, 62, 66, 67, 68, 80, 85,
     }
     for index, request in enumerate(calls):
         headers = {name.lower(): value for name, value in request.header_items()}
@@ -406,3 +429,31 @@ def test_price_types_sale_settings_holder_contacts_and_date_cancels_reach_the_wi
     # A refund without a caller key still gets one, so a retry replays the same job.
     assert calls[6].get_header("Idempotency-key")
 
+
+
+def test_renewal_by_api_decline_reason_and_checkout_body_reach_the_wire() -> None:
+    calls: list[Any] = []
+
+    def transport(request: Any, _timeout: float) -> FakeResponse:
+        calls.append(request)
+        return FakeResponse()
+
+    seasons = SeatLayer("sk_test_abc", transport=transport).seasons
+    seasons.decline_season_renewal_offer("sea/a", "offer/1", reason="Moving away")
+    seasons.decline_season_renewal_offer("sea_1", "offer_1")
+    seasons.create_season_renewal_checkout("sea_1", "offer_1", "https://tickets.example/renewed")
+
+    assert [call.full_url.removeprefix("https://api.seatlayer.io") for call in calls] == [
+        "/v1/seasons/sea%2Fa/renewal-offers/offer%2F1/decline",
+        "/v1/seasons/sea_1/renewal-offers/offer_1/decline",
+        "/v1/seasons/sea_1/renewal-offers/offer_1/checkout",
+    ]
+    assert [json.loads(call.data) for call in calls] == [
+        {"reason": "Moving away"},
+        {},
+        {"returnUrl": "https://tickets.example/renewed"},
+    ]
+    assert calls[0].get_header("Idempotency-key") is None
+    assert calls[1].get_header("Idempotency-key") is None
+    # A checkout without a caller key still gets one, so a retry answers the same order.
+    assert calls[2].get_header("Idempotency-key")

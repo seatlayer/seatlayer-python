@@ -2,10 +2,11 @@
 
 ## Unreleased
 
-- Added 35 Season operations to `seatlayer.seasons` (now 83): performances, package prices,
+- Added 38 Season operations to `seatlayer.seasons` (now 86): performances, package prices,
   plan edits and publish, checkout tests, occurrence returns and reclaims, holders, season order
-  refunds and cancellations, hosted renewals and renewal emails, sales and seat reports, the
-  holders and orders CSV exports, and bulk refunds with their jobs.
+  refunds and cancellations, hosted renewals and renewal emails, renewal quotes, intents and
+  checkouts, sales and seat reports, the holders and orders CSV exports, and bulk refunds with
+  their jobs.
 - Added `seatlayer.holders` (holders, their tickets and transfers, and `list_customers`),
   `seatlayer.orders` (orders across events and seasons, and one event's orders, refunds,
   cancellations and CSV export) and `seatlayer.event_series` (create, list, retrieve, add dates,
@@ -13,8 +14,8 @@
 - Added `holders.create_holder_return`: give back a holder's seat on one date, one per ticket.
 - Added an event's sales settings to `seatlayer.events`: checkout choice, payment gateway, sales
   readiness, preflight and transitions, booking fee, and discount codes.
-- Method names are the snake_case operation ids. 24 of the new mutations use exact header replay
-  (38 in all); the rest are sent once. CSV exports return text; the two 204 deletes return `None`.
+- Method names are the snake_case operation ids. 26 of the new mutations use exact header replay
+  (40 in all); the rest are sent once. CSV exports return text; the two 204 deletes return `None`.
 - Added 10 webhook event names: `series.created`, `series.dates_added`, `order.paid`,
   `order.refunded`, `order.cancelled`, `customer.created`, `customer.email_changed`,
   `season.ticket.transfer_sent`, `season.ticket.transferred`, `season.ticket.transfer_cancelled`.
@@ -31,6 +32,12 @@
   `rescheduled`), `season.bulk_action.completed`, `season.order.*`, `season.ticket.issued`, and
   `season.ticket.voided`.
 - `events.list` and `events.list_all` take `series_key` to list one event series' dates.
+- Added `seasons.retrieve_season_renewal_quote`: what renewing an offer costs, and whether SeatLayer checkout can take it now.
+- Added `seasons.create_season_renewal_intent`: record a holder's intent for a renewal taken by phone or at the box office, so your own checkout can commit.
+- Added `seasons.create_season_renewal_checkout`: a SeatLayer checkout that renews an offer with no hosted page, with header replay.
+- Added `holders.create_holder_renewal_checkout`: the same checkout for one of a holder's offers, with header replay.
+- Added `holders.decline_holder_renewal_offer`: decline one of a holder's offers, with an optional `reason`.
+- `decline_season_renewal_offer` takes an optional `reason`, kept on the offer as `declineReason`.
 
 ## 0.8.0 (2026-09-10)
 

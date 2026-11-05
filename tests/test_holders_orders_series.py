@@ -157,6 +157,36 @@ CASES: list[tuple[str, Call, str, str, Any, bool]] = [
         {"ticketIds": ["tkt_0123456789abcdef01234567"]},
         True,
     ),
+    (
+        "createHolderRenewalCheckout",
+        lambda sdk: sdk.holders.create_holder_renewal_checkout(
+            "h/1",
+            "offer/1",
+            "https://tickets.example/renewed",
+            buyer_email="cara@example.com",
+            buyer_name="Cara",
+            provider="stripe",
+        ),
+        "POST",
+        "/v1/holders/h%2F1/renewal-offers/offer%2F1/checkout",
+        {
+            "returnUrl": "https://tickets.example/renewed",
+            "buyerEmail": "cara@example.com",
+            "buyerName": "Cara",
+            "provider": "stripe",
+        },
+        True,
+    ),
+    (
+        "declineHolderRenewalOffer",
+        lambda sdk: sdk.holders.decline_holder_renewal_offer(
+            "h/1", "offer/1", reason="Moving away"
+        ),
+        "POST",
+        "/v1/holders/h%2F1/renewal-offers/offer%2F1/decline",
+        {"reason": "Moving away"},
+        False,
+    ),
     # orders
     (
         "listOrders",
@@ -419,7 +449,7 @@ CASES: list[tuple[str, Call, str, str, Any, bool]] = [
 
 def test_covers_every_new_holder_order_sales_and_series_operation() -> None:
     operation_ids = [case[0] for case in CASES]
-    assert len(operation_ids) == len(set(operation_ids)) == 40  # 12 + 9 + 14 + 5
+    assert len(operation_ids) == len(set(operation_ids)) == 42  # 14 + 9 + 14 + 5
 
 
 @pytest.mark.parametrize(
@@ -473,10 +503,11 @@ def test_optional_bodies_are_omitted_when_empty() -> None:
     sdk.holders.revoke_holder_sessions("h_1")
     sdk.orders.resend_event_order_tickets("ev_1", "ord_1")
     sdk.events.replace_event_payment_gateway("ev_1")
+    sdk.holders.decline_holder_renewal_offer("h_1", "offer_1")
     sdk.event_series.update_event_series("ev_1")
-    assert [call.data for call in calls[:3]] == [None, None, None]
+    assert [call.data for call in calls[:4]] == [None, None, None, None]
     # updateEventSeries requires a body, even an empty one.
-    assert json.loads(calls[3].data) == {}
+    assert json.loads(calls[4].data) == {}
 
 
 def test_add_event_series_dates_takes_exactly_one_shape() -> None:
@@ -543,6 +574,28 @@ def test_holder_return_retries_with_one_key_generated_or_given() -> None:
     assert [call.get_header("Idempotency-key") for call in calls] == ["return-1", "return-1"]
 
 
+def test_holder_renewal_checkout_retries_with_one_key_generated_or_given() -> None:
+    calls: list[Any] = []
+    sdk = SeatLayer("sk_test_abc", transport=_flaky(429, calls))
+    sdk.holders.create_holder_renewal_checkout("a/b", "offer_1", "https://tickets.example/r")
+    assert len(calls) == 2
+    first = calls[0].get_header("Idempotency-key")
+    assert first and first == calls[1].get_header("Idempotency-key")
+    assert [call.full_url for call in calls] == [
+        BASE + "/v1/holders/a%2Fb/renewal-offers/offer_1/checkout"
+    ] * 2
+
+    calls.clear()
+    sdk = SeatLayer("sk_test_abc", transport=_flaky(503, calls))
+    sdk.seasons.create_season_renewal_checkout(
+        "sea_1", "offer_1", "https://tickets.example/r", idempotency_key="renew-1"
+    )
+    assert [call.get_header("Idempotency-key") for call in calls] == ["renew-1", "renew-1"]
+    assert [json.loads(call.data) for call in calls] == [
+        {"returnUrl": "https://tickets.example/r"}
+    ] * 2
+
+
 @pytest.mark.parametrize(
     "call",
     [
@@ -551,8 +604,13 @@ def test_holder_return_retries_with_one_key_generated_or_given() -> None:
         lambda sdk: sdk.seasons.rotate_season_renewal_offer_link("sea_1", "offer_1"),
         lambda sdk: sdk.events.create_event_discount_code("ev_1", "X", "amount", amount_minor=5),
         lambda sdk: sdk.holders.accept_holder_transfer("h_1", "tr_1"),
+        lambda sdk: sdk.seasons.create_season_renewal_intent("sea_1", "offer_1"),
+        lambda sdk: sdk.holders.decline_holder_renewal_offer("h_1", "offer_1", reason="Moving"),
     ],
-    ids=["resend-event", "resend-season", "rotate-link", "discount-code", "accept-transfer"],
+    ids=[
+        "resend-event", "resend-season", "rotate-link", "discount-code", "accept-transfer",
+        "renewal-intent", "holder-decline",
+    ],
 )
 def test_unsupported_and_domain_exact_mutations_are_single_attempt(call: Call) -> None:
     calls: list[Any] = []

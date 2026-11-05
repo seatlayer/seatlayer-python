@@ -10,10 +10,11 @@
   `seatlayer.orders` (orders across events and seasons, and one event's orders, refunds,
   cancellations and CSV export) and `seatlayer.event_series` (create, list, retrieve, add dates,
   update).
+- Added `holders.create_holder_return`: give back a holder's seat on one date, one per ticket.
 - Added an event's sales settings to `seatlayer.events`: checkout choice, payment gateway, sales
   readiness, preflight and transitions, booking fee, and discount codes.
-- Method names are the snake_case operation ids. 22 of the new mutations use exact header replay
-  (36 in all); the rest are sent once. CSV exports return text; the two 204 deletes return `None`.
+- Method names are the snake_case operation ids. 23 of the new mutations use exact header replay
+  (37 in all); the rest are sent once. CSV exports return text; the two 204 deletes return `None`.
 - Added 10 webhook event names: `series.created`, `series.dates_added`, `order.paid`,
   `order.refunded`, `order.cancelled`, `customer.created`, `customer.email_changed`,
   `season.ticket.transfer_sent`, `season.ticket.transferred`, `season.ticket.transfer_cancelled`.

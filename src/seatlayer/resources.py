@@ -2385,7 +2385,7 @@ class Seasons:
 
 
 class Holders:
-    """Season ticket holders, their tickets and transfers, and the customers behind them.
+    """Season ticket holders, their tickets, transfers and returns, and the customers behind them.
 
     Method names are the snake_case form of the public operation ids.
     """
@@ -2498,6 +2498,23 @@ class Holders:
         """Accept a transfer for the recipient holder. Sent once."""
         return self._http.post(
             self._path(holder_ref, f"/transfers/{quote(transfer_id)}/accept")
+        )
+
+    def create_holder_return(
+        self,
+        holder_ref: str,
+        ticket_ids: Sequence[str],
+        idempotency_key: str | None = None,
+    ) -> Any:
+        """Give back a holder's seat on one date, one per ticket.
+
+        ``ticket_ids`` takes 1 to 20 tickets, all of one season. Returns ``{"return": ...}``;
+        a repeat with the same key answers with the same return.
+        """
+        return self._http.post_with_header_replay(
+            self._path(holder_ref, "/returns"),
+            body={"ticketIds": list(ticket_ids)},
+            idempotency_key=idempotency_key,
         )
 
 

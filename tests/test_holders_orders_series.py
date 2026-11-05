@@ -147,6 +147,16 @@ CASES: list[tuple[str, Call, str, str, Any, bool]] = [
         None,
         False,
     ),
+    (
+        "createHolderReturn",
+        lambda sdk: sdk.holders.create_holder_return(
+            "a/b", ["tkt_0123456789abcdef01234567"]
+        ),
+        "POST",
+        "/v1/holders/a%2Fb/returns",
+        {"ticketIds": ["tkt_0123456789abcdef01234567"]},
+        True,
+    ),
     # orders
     (
         "listOrders",
@@ -409,7 +419,7 @@ CASES: list[tuple[str, Call, str, str, Any, bool]] = [
 
 def test_covers_every_new_holder_order_sales_and_series_operation() -> None:
     operation_ids = [case[0] for case in CASES]
-    assert len(operation_ids) == len(set(operation_ids)) == 39  # 11 + 9 + 14 + 5
+    assert len(operation_ids) == len(set(operation_ids)) == 40  # 12 + 9 + 14 + 5
 
 
 @pytest.mark.parametrize(
@@ -511,6 +521,26 @@ def test_header_replay_mutations_retry_with_one_key() -> None:
     assert len(calls) == 2
     first = calls[0].get_header("Idempotency-key")
     assert first and first == calls[1].get_header("Idempotency-key")
+
+
+def test_holder_return_retries_with_one_key_generated_or_given() -> None:
+    calls: list[Any] = []
+    sdk = SeatLayer("sk_test_abc", transport=_flaky(429, calls))
+    sdk.holders.create_holder_return("a/b", ["tkt_0123456789abcdef01234567"])
+    assert len(calls) == 2
+    first = calls[0].get_header("Idempotency-key")
+    assert first and first == calls[1].get_header("Idempotency-key")
+    assert [call.full_url for call in calls] == [BASE + "/v1/holders/a%2Fb/returns"] * 2
+    assert [json.loads(call.data) for call in calls] == [
+        {"ticketIds": ["tkt_0123456789abcdef01234567"]}
+    ] * 2
+
+    calls.clear()
+    sdk = SeatLayer("sk_test_abc", transport=_flaky(503, calls))
+    sdk.holders.create_holder_return(
+        "a/b", ["tkt_0123456789abcdef01234567"], idempotency_key="return-1"
+    )
+    assert [call.get_header("Idempotency-key") for call in calls] == ["return-1", "return-1"]
 
 
 @pytest.mark.parametrize(

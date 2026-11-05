@@ -357,7 +357,7 @@ requests.
 
 ## Reliability
 
-**Retries and idempotency.** Reads retry 408, 429 and 5xx responses with backoff. Thirty-six
+**Retries and idempotency.** Reads retry 408, 429 and 5xx responses with backoff. Thirty-seven
 mutations opt into exact header replay: `charts.create`, `charts.copy`,
 `templates.instantiate_template`, `events.create`, `workspaces.create`,
 `performance_groups.create`; on `seasons`, `create_season`, `update_season`, `delete_season`,
@@ -368,8 +368,8 @@ mutations opt into exact header replay: `charts.create`, `charts.copy`,
 `duplicate_season_to_live`, `create_season_holder_import`,
 `create_season_holder_import_from_season`, `create_season_renewal_offers`,
 `create_season_amendment`, `refund_season_order`, `cancel_season_order`, and
-`cancel_season_order_date`; `holders.update_holder` and `holders.create_holder_transfer`;
-`orders.refund_event_order` and `orders.cancel_event_order`; and
+`cancel_season_order_date`; `holders.update_holder`, `holders.create_holder_transfer`, and
+`holders.create_holder_return`; `orders.refund_event_order` and `orders.cancel_event_order`; and
 `event_series.create_event_series`, `event_series.add_event_series_dates`, and
 `event_series.update_event_series`. The SDK generates one `Idempotency-Key` (or uses yours) and
 reuses it for every attempt. All remaining SDK mutations are sent once; some have a server-side domain idempotency
@@ -383,7 +383,7 @@ before trying again.
 ```python
 SeatLayer(
     os.environ["SEATLAYER_SECRET_KEY"],
-    max_retries=3,   # attempts for reads and the 36 exact-header-replay mutations
+    max_retries=3,   # attempts for reads and the 37 exact-header-replay mutations
     timeout=30.0,    # seconds, per attempt
 )
 ```
@@ -415,7 +415,7 @@ holder, order, renewal, occurrence, reporting, export, outbox, and support opera
 | `workspaces` | `list` `create` `retrieve` `update` |
 | `performance_groups` | `list` `create` `retrieve` `delete` `activate` `close` `retrieve_lifecycle` `create_buyer_access_session` `list_buyer_access_sessions` `revoke_buyer_access_session` `retrieve_hold` `book_hold` `retrieve_booking` |
 | `seasons` | 80 operations for catalogue and Plan lifecycle, performances, package prices, sales windows, checkout tests, buyer access and booking, holder imports, holders, season orders, renewals and hosted renewals, occurrence amendments, returns and reclaims, reports, CSV exports, audit, outbox, and support export |
-| `holders` | `list_customers` `retrieve_holder` `update_holder` `revoke_holder_sessions` `list_holder_seasons` `list_holder_tickets` `retrieve_holder_ticket` `create_holder_transfer` `list_holder_transfers` `cancel_holder_transfer` `accept_holder_transfer` |
+| `holders` | `list_customers` `retrieve_holder` `update_holder` `revoke_holder_sessions` `list_holder_seasons` `list_holder_tickets` `retrieve_holder_ticket` `create_holder_transfer` `list_holder_transfers` `cancel_holder_transfer` `accept_holder_transfer` `create_holder_return` |
 | `orders` | `list_orders` `retrieve_order` `list_order_tickets` `list_event_orders` `retrieve_event_order` `export_event_orders_csv` `refund_event_order` `cancel_event_order` `resend_event_order_tickets` |
 | `event_series` | `create_event_series` `list_event_series` `retrieve_event_series` `add_event_series_dates` `update_event_series` |
 

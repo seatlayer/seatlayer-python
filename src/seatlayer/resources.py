@@ -1569,6 +1569,25 @@ class PerformanceGroups:
         )
 
 
+def season_date_cancel_void_job_id(amendment_id: str) -> str:
+    """The job voiding a cancelled date's tickets: ``sbj_void_`` and the cancel's ``amendmentId``.
+
+    Cancelling a date starts it (a repeated cancel joins it); follow it with
+    :meth:`Seasons.retrieve_season_bulk_job`. Each season ticket it voids is told by
+    ``season.ticket.voided`` with reason ``date_cancelled``.
+    """
+    return f"sbj_void_{amendment_id}"
+
+
+def season_holder_import_rows_per_call(dates: int) -> int:
+    """The most rows one ``create_season_holder_import`` call takes for a package of ``dates``.
+
+    Each row is fenced on every date: 100 up to 20 dates, then ``2300 // (dates + 3)``, 43 at
+    50. A call with more answers ``422 invalid_rows`` with ``maxRows``.
+    """
+    return max(1, min(100, 2300 // (max(1, dates) + 3)))
+
+
 class Seasons:
     """Fixed Renewable Season organizer operations for trusted backends.
 
@@ -1671,7 +1690,11 @@ class Seasons:
         ended Season cannot become public (``409 sales_ended``).
         ``single_tickets`` turned on while the Season is on sale opens each
         upcoming date's own sales through its readiness checks; turned off, they
-        stop. The answer's ``singleTicketDates`` says which dates opened or stopped.
+        stop. The answer's ``singleTicketDates`` says which dates opened or stopped;
+        its ``jobRefused``, when present, says why the ``season_singles`` job could not
+        start. The change still stands, and sending ``single_tickets=True`` again opens
+        any date still not open. An exact retry with the same ``expected_revision`` and
+        ``idempotency_key`` is not applied twice.
         """
         body: dict[str, Any] = {"expectedRevision": expected_revision}
         if name is not None:
@@ -1884,7 +1907,10 @@ class Seasons:
 
         Each row is ``{"rowId", "holderRef", "priorPlanActivationId",
         "priorContractRef", "labels"}`` plus optional ``existingBookingRef``,
-        ``holderEmail`` and ``holderName``.
+        ``holderEmail`` and ``holderName``. A call takes at most
+        :func:`season_holder_import_rows_per_call` rows for the package's dates (100
+        up to 20 dates); more raises :class:`SeatLayerValidationError` with code
+        ``invalid_rows`` and ``maxRows`` in its ``body``.
         """
         body: dict[str, Any] = {
             "successorPlanActivationId": successor_plan_activation_id,
@@ -2016,7 +2042,10 @@ class Seasons:
         off sale for good. With ``cancel`` only, ``refund="per_date"`` refunds
         each order's share of the date as a job (the answer's ``refundJob``),
         and ``reason`` is kept on the job. A whole-order refund is the order
-        refund.
+        refund. A ``cancel`` also voids every live ticket for the date as a
+        ``date_cancel_void`` job, which the answer does not name:
+        ``season_date_cancel_void_job_id(answer["amendment"]["amendmentId"])``.
+        Follow it with :meth:`retrieve_season_bulk_job`.
         """
         body: dict[str, Any] = {"eventKey": event_key, "kind": kind}
         if starts_at is not None:
@@ -2966,6 +2995,11 @@ class EventSeries:
         seat blocks, none of its orders, holds or sales). The series then takes
         the event's name, zone and floor plan; ``chart_key``, ``venue`` and
         ``duration_minutes`` are refused with it.
+
+        Retried safely with one Idempotency-Key. A series from an event that never
+        started and was given up answers ``409 create_abandoned`` for that key every
+        time (:class:`SeatLayerConflictError`, not retried): send the request again
+        with a new key.
         """
         if schedule is None:
             raise ValueError("schedule is required")

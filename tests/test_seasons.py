@@ -4,11 +4,18 @@ from __future__ import annotations
 
 import io
 import json
+import urllib.error
 from typing import Any
 
+import pytest
 from typing_extensions import Self
 
-from seatlayer import SeatLayer
+from seatlayer import (
+    SeatLayer,
+    SeatLayerValidationError,
+    season_date_cancel_void_job_id,
+    season_holder_import_rows_per_call,
+)
 
 
 class FakeResponse(io.BytesIO):
@@ -561,3 +568,34 @@ def test_single_tickets_reach_the_wire_on_create_and_update() -> None:
     assert json.loads(calls[1].data) == {"expectedRevision": 5, "singleTickets": False}
     assert json.loads(calls[2].data) == {"expectedRevision": 6, "name": "Series 2"}
     assert answer["singleTicketDates"]["opened"] == ["ev_1"]
+
+
+def test_names_the_cancelled_date_void_job_and_sizes_a_holder_import_call() -> None:
+    assert season_date_cancel_void_job_id("amd_1") == "sbj_void_amd_1"
+    assert [season_holder_import_rows_per_call(dates) for dates in (1, 20, 21, 50)] == [
+        100, 100, 95, 43,
+    ]
+
+    calls: list[Any] = []
+
+    def transport(request: Any, _timeout: float) -> FakeResponse:
+        calls.append(request)
+        raise urllib.error.HTTPError(
+            request.full_url,
+            422,
+            "error",
+            {},  # type: ignore[arg-type]
+            io.BytesIO(json.dumps({
+                "error": "invalid_rows", "code": "invalid_rows",
+                "message": "At most 43 rows a call for this package.", "maxRows": 43,
+            }).encode()),
+        )
+
+    seasons = SeatLayer("sk_test_abc", transport=transport).seasons
+    with pytest.raises(SeatLayerValidationError) as raised:
+        seasons.create_season_holder_import("sea_1", "spa_1", [])
+    assert raised.value.status == 422
+    assert raised.value.code == "invalid_rows"
+    assert raised.value.body["maxRows"] == 43
+    # A 422 is the request itself, so even this header-replay call is sent once.
+    assert len(calls) == 1

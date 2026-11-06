@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 from typing_extensions import Self
 
-from seatlayer import SeatLayer, SeatLayerError
+from seatlayer import SeatLayer, SeatLayerConflictError, SeatLayerError
 
 BASE = "https://api.seatlayer.io"
 CSV = "order,buyer\r\nSL-1,A. Fan\r\n"
@@ -522,6 +522,35 @@ def test_create_event_series_from_an_event() -> None:
         sdk.event_series.create_event_series(schedule=schedule)
     with pytest.raises(ValueError, match="schedule is required"):
         sdk.event_series.create_event_series(from_event_key="lighthouse-keeper")
+    assert len(calls) == 1
+
+
+def test_a_given_up_series_create_answers_409_create_abandoned_once() -> None:
+    calls: list[Any] = []
+
+    def transport(request: Any, _timeout: float) -> FakeResponse:
+        calls.append(request)
+        raise urllib.error.HTTPError(
+            request.full_url,
+            409,
+            "error",
+            {},  # type: ignore[arg-type]
+            io.BytesIO(json.dumps({
+                "error": "create_abandoned",
+                "code": "create_abandoned",
+                "message": "This series never started and was given up when another request "
+                "came for the event. Send the request again with a new Idempotency-Key.",
+            }).encode()),
+        )
+
+    sdk = SeatLayer("sk_test_abc", max_retries=3, transport=transport)
+    schedule = {"rule": "daily", "from": "2026-11-06", "until": "2026-11-08", "times": ["20:00"]}
+    with pytest.raises(SeatLayerConflictError) as raised:
+        sdk.event_series.create_event_series(
+            schedule=schedule, from_event_key="ev_1", idempotency_key="series-3"
+        )
+    assert raised.value.code == "create_abandoned"
+    assert "new Idempotency-Key" in str(raised.value)
     assert len(calls) == 1
 
 

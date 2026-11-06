@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- Cancelling a date with `create_season_amendment(kind="cancel")` voids its tickets as a
+  `date_cancel_void` job, named by `season_date_cancel_void_job_id(amendment_id)` (`sbj_void_…`);
+  follow it with `retrieve_season_bulk_job`. `season.ticket.voided` says `date_cancelled` for
+  each season ticket it voids.
+- A Season package holds 2 to 50 dates. `season_holder_import_rows_per_call(dates)` gives the most
+  rows one `create_season_holder_import` call takes (100 up to 20 dates, 43 at 50); a call with
+  more raises `SeatLayerValidationError` with code `invalid_rows` and `maxRows` in its `body`.
+- `update_season`'s `singleTicketDates` may carry `jobRefused`: why a `season_singles` job could
+  not start. The change stands, and sending `single_tickets=True` again opens any date still not
+  open. An `update_season` retried with its first `idempotency_key` and `expected_revision` is
+  not applied twice.
+- A `create_event_series` given up for its key answers `409 create_abandoned`
+  (`SeatLayerConflictError`, sent once) with a message to send it again with a new idempotency
+  key.
+
 - Added 39 Season operations to `seatlayer.seasons` (now 87): performances, package prices,
   plan edits and publish, checkout tests, occurrence returns and reclaims, holders, season order
   refunds and cancellations, hosted renewals and renewal emails, renewal quotes, intents and

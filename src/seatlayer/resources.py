@@ -1685,7 +1685,8 @@ class Seasons:
         ``checkout_mode`` says who takes the money; it cannot go back to
         undecided and is fixed once a live booking exists. The cutoffs are hours
         before a date starts (0 to 720) after which its tickets can no longer be
-        sent to others, or a seat given back; ``None`` means until it starts.
+        sent to others, or a seat given back; ``None`` means the club default
+        (Settings › Ticket site), or until it starts when the club has none.
         ``audience="public"`` lists the Season on your SeatLayer website; an
         ended Season cannot become public (``409 sales_ended``).
         ``single_tickets`` turned on while the Season is on sale opens each
@@ -2733,7 +2734,11 @@ class Holders:
         to_email: str,
         idempotency_key: str | None = None,
     ) -> Any:
-        """Send some of a holder's season tickets to an email address."""
+        """Send some of a holder's season tickets to an email address.
+
+        Turning customer sends off in Settings › Ticket site doesn't stop your
+        server; cut-offs still apply.
+        """
         return self._http.post_with_header_replay(
             self._path(holder_ref, "/transfers"),
             body={"ticketIds": list(ticket_ids), "toEmail": to_email},
@@ -2765,7 +2770,8 @@ class Holders:
         """Give back a holder's seat on one date, one per ticket.
 
         ``ticket_ids`` takes 1 to 20 tickets, all of one season. Returns ``{"return": ...}``;
-        a repeat with the same key answers with the same return.
+        a repeat with the same key answers with the same return. Turning give-backs
+        off in Settings › Ticket site doesn't stop your server; cut-offs still apply.
         """
         return self._http.post_with_header_replay(
             self._path(holder_ref, "/returns"),
@@ -3066,8 +3072,10 @@ class EventSeries:
     ) -> Any:
         """Change the name, prices or sales of every upcoming date in a series.
 
-        ``sales="on"`` or ``"off"`` opens or pauses sales on every upcoming date,
-        each with its own go-live checks.
+        ``prices={"categories": [...]}`` takes only the categories whose price
+        changes (for a tiered category, only the tiers sent); every price left
+        out keeps each date's own value. ``sales="on"`` or ``"off"`` opens or
+        pauses sales on every upcoming date, each with its own go-live checks.
         """
         body = _fields((("name", name), ("prices", prices), ("sales", sales)))
         return self._http.mutation_with_header_replay(

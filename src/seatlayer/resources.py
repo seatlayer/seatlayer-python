@@ -459,6 +459,10 @@ class Events:
         return self._http.post(f"/v1/events/{quote(event_key)}/close")
 
     def reopen(self, event_key: str) -> Any:
+        """Open a paused event's sales again.
+
+        A date its season cancelled never opens again: ``409 season_date_cancelled``.
+        """
         return self._http.post(f"/v1/events/{quote(event_key)}/reopen")
 
     def archive(self, event_key: str) -> Any:
@@ -581,7 +585,11 @@ class Events:
         expected_revision: int,
         reason: str | None = None,
     ) -> Any:
-        """Move an event's sales to another state, such as live or paused. Sent once."""
+        """Move an event's sales to another state, such as live or paused. Sent once.
+
+        A date its season cancelled never opens again: moving it to ``testable``
+        or ``live`` answers ``409 season_date_cancelled``.
+        """
         body: dict[str, Any] = {"to": to, "expectedRevision": expected_revision}
         if reason is not None:
             body["reason"] = reason
@@ -2046,7 +2054,9 @@ class Seasons:
         refund. A ``cancel`` also voids every live ticket for the date as a
         ``date_cancel_void`` job, which the answer does not name:
         ``season_date_cancel_void_job_id(answer["amendment"]["amendmentId"])``.
-        Follow it with :meth:`retrieve_season_bulk_job`.
+        Follow it with :meth:`retrieve_season_bulk_job`. A cancelled date
+        can't be moved (``reschedule``), postponed or replaced:
+        ``409 performance_cancelled``.
         """
         body: dict[str, Any] = {"eventKey": event_key, "kind": kind}
         if starts_at is not None:
@@ -2321,7 +2331,10 @@ class Seasons:
         force: bool | None = None,
         idempotency_key: str | None = None,
     ) -> Any:
-        """Mark a performance past so it stops blocking new Season sales."""
+        """Mark a performance past so it stops blocking new Season sales.
+
+        A cancelled date answers ``409 performance_cancelled``.
+        """
         return self._http.post_with_header_replay(
             self._path(season_key, f"/performances/{quote(event_key)}/past"),
             body=_fields((("force", force),)),
@@ -3076,6 +3089,9 @@ class EventSeries:
         changes (for a tiered category, only the tiers sent); every price left
         out keeps each date's own value. ``sales="on"`` or ``"off"`` opens or
         pauses sales on every upcoming date, each with its own go-live checks.
+        ``"on"`` never opens a date its season cancelled: that date is a failed
+        item of the job (``season_date_cancelled``), counted in ``job["failed"]``
+        but not in ``failedDates``, which are the dates that could not be made.
         """
         body = _fields((("name", name), ("prices", prices), ("sales", sales)))
         return self._http.mutation_with_header_replay(

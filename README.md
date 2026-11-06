@@ -88,14 +88,18 @@ live ones; crossing them returns `403 mode_mismatch`, surfaced as `SeatLayerAuth
 
 ## Fixed Renewable Seasons
 
-Version `0.7.0` exposes all 48 trusted organizer operations through
-`seatlayer.seasons`.
+`seatlayer.seasons` exposes all 87 trusted organizer operations: catalogue and packages,
+performances, package prices (per price type: `adult`, `child`, `concession`, `senior`,
+`student`), sales, checkout tests, buyer access and booking, holder imports, holders, season
+orders, renewals, hosted renewals and renewal checkouts, occurrences (postpone and cancel a date), bulk refunds of a
+cancelled date, the release of lapsed renewal offers and their jobs, reports, CSV exports, audit, outbox, and support export.
 
 After the test hold/book/cancel journey and matching webhook deliveries,
 `validate_season_buyer_rehearsal(season_key)` sends no evidence body; SeatLayer
 discovers the retained chain automatically. Retrieved Season holds contain
-inventory identity, not an authoritative amount. Your platform owns package
-price, payment, order, tax, refunds, benefits, and ticket or pass delivery.
+inventory identity, not an authoritative amount. When you run your own checkout,
+your platform owns package price, payment, order, tax, refunds, benefits, and
+ticket or pass delivery.
 
 ```python
 checked = seatlayer.seasons.validate_season(
@@ -112,13 +116,64 @@ activation = seatlayer.seasons.activate_season(draft["key"], draft["revision"])
 Treat `202` as accepted work: retain the returned `lifecycleOperation.operationId`
 and poll `retrieve_season_lifecycle`. Buyer sessions are show-once and never
 retried invisibly. Booking, cancellation, and renewal actions require caller-stable
-identities. Only header-replay catalogue mutations retry automatically.
+identities. Only header-replay mutations retry automatically.
 
 ```python
 seatlayer = SeatLayer(os.environ["SEATLAYER_SECRET_KEY"])
 if os.environ.get("ENV") == "production" and seatlayer.mode != "live":
     raise RuntimeError("Refusing to boot production against test-mode seating data.")
 ```
+
+When SeatLayer takes the season's payments, renew a holder with no hosted page: read the price
+with `retrieve_season_renewal_quote`, then start a checkout and send the holder to
+`payment["url"]`. For a renewal taken by phone or at the box office, record the holder's intent
+with `create_season_renewal_intent` before you commit the offer. A decline can carry the holder's
+reason.
+
+```python
+quote = seatlayer.seasons.retrieve_season_renewal_quote(season_key, offer_id)
+if quote["problem"] is None:
+    started = seatlayer.seasons.create_season_renewal_checkout(
+        season_key,
+        offer_id,
+        "https://tickets.yourclub.example/renewed",
+        idempotency_key=f"renew-{offer_id}",
+    )
+    redirect(started["payment"]["url"])
+
+seatlayer.holders.decline_holder_renewal_offer("holder_123", offer_id, reason="Moving away")
+```
+
+## Holders, orders, sales settings and event series
+
+Three more resources sit next to `seasons`: `holders` (season ticket holders, their tickets and
+transfers, and `list_customers`), `orders` (orders SeatLayer took through its own checkout, across
+events and seasons, and one event's orders), and `event_series` (runs of dated events made from one
+schedule). An event's sales settings (checkout choice, payment gateway, sales readiness and
+transitions, booking fee, discount codes) are on `events`. Method names are the snake_case
+operation ids, as on `seasons`.
+
+```python
+holders = seatlayer.seasons.list_season_holders("sea_2027", status="active", limit=50)
+tickets = seatlayer.holders.list_holder_tickets("holder_123", season_key="sea_2027")
+
+orders = seatlayer.orders.list_orders(season_key="sea_2027", status="confirmed")
+seatlayer.orders.refund_event_order("ev_1", "ord_1", idempotency_key="refund-ord_1")
+csv_text = seatlayer.orders.export_event_orders_csv("ev_1")   # the CSV as a str
+
+series = seatlayer.event_series.create_event_series(
+    "Hamlet",
+    "chart_1",
+    {"rule": "weekly", "from": "2026-11-03", "count": 6, "times": ["19:30"]},
+    timezone="Europe/London",
+    dry_run=True,   # answer the dates, create nothing
+)
+```
+
+The three CSV exports (`seasons.export_season_holders_csv`, `seasons.export_season_orders_csv`,
+`orders.export_event_orders_csv`) return the CSV text. `seasons.delete_season_plan` and
+`events.delete_event_discount_code` return `None`. If you run your own checkout, your store stays
+the order record; these order operations cover sales SeatLayer took.
 
 ## Book reserved seats from Python
 
@@ -191,6 +246,8 @@ exactly when you don't want that, and you can control it explicitly:
 ```python
 seatlayer.events.list(limit=50, counts=False)
 ```
+
+To list only the dates of one event series, pass `series_key="ser_1"` to `list()` or `list_all()`.
 
 ## Keeping a hold alive
 
@@ -266,7 +323,10 @@ For safe-mode embeds, pass `mode="safe"` with `safe_mode_options`; feature polic
 Subscription responses use the API envelopes exactly: `list()` returns `{"subs": [...]}`,
 `create()` returns `{"sub": ..., "secret": ...}` (the secret is shown once), and `update()`
 returns `{"sub": ...}`. Supported event names are `seat.booked`, `seat.released`, `seat.blocked`,
-`hold.expired`, `hold.created`, `hold.extended`, `event.created`, and `event.soldout`.
+`hold.expired`, `hold.created`, `hold.extended`, `event.created`, `event.soldout`,
+`series.created`, `series.dates_added`, `order.paid`, `order.refunded`, `order.cancelled`,
+`customer.created`, `customer.email_changed`, `season.ticket.transfer_sent`,
+`season.ticket.transferred`, and `season.ticket.transfer_cancelled`.
 
 Verify every delivery against the **raw** body. Re-serialising it changes the bytes and
 verification will fail.
@@ -320,14 +380,24 @@ requests.
 
 ## Reliability
 
-**Retries and idempotency.** Reads retry 408, 429 and 5xx responses with backoff. Fourteen
+**Retries and idempotency.** Reads retry 408, 429 and 5xx responses with backoff. Forty-one
 mutations opt into exact header replay: `charts.create`, `charts.copy`,
 `templates.instantiate_template`, `events.create`, `workspaces.create`,
-`performance_groups.create`, `seasons.create_season`, `seasons.update_season`,
-`seasons.delete_season`, `seasons.create_season_plan`, `seasons.duplicate_season_to_live`,
-`seasons.create_season_holder_import`, `seasons.create_season_renewal_offers`, and
-`seasons.create_season_amendment`. The SDK generates one `Idempotency-Key` and reuses it for every
-attempt. All remaining SDK mutations are sent once; some have a server-side domain idempotency
+`performance_groups.create`; on `seasons`, `create_season`, `update_season`, `delete_season`,
+`create_season_plan`, `update_season_plan`, `delete_season_plan`, `publish_season`,
+`replace_season_package_prices`, `attach_season_plan_performance`,
+`delete_season_plan_performance`, `create_season_performances`, `attach_season_performances`,
+`delete_season_performance`, `mark_season_performance_past`, `create_season_checkout_test`,
+`duplicate_season_to_live`, `create_season_holder_import`,
+`create_season_holder_import_from_season`, `create_season_renewal_offers`,
+`create_season_amendment`, `refund_season_order`, `cancel_season_order`,
+`cancel_season_order_date`, `refund_season_performance`, `release_season_lapsed_offers`, and
+`create_season_renewal_checkout`;
+`holders.update_holder`, `holders.create_holder_transfer`, `holders.create_holder_return`, and
+`holders.create_holder_renewal_checkout`; `orders.refund_event_order` and `orders.cancel_event_order`; and
+`event_series.create_event_series`, `event_series.add_event_series_dates`, and
+`event_series.update_event_series`. The SDK generates one `Idempotency-Key` (or uses yours) and
+reuses it for every attempt. All remaining SDK mutations are sent once; some have a server-side domain idempotency
 contract, but the SDK does not retry them automatically.
 
 **Booking safety.** Direct and box-office bookings have the server's exact-selection plus
@@ -338,7 +408,7 @@ before trying again.
 ```python
 SeatLayer(
     os.environ["SEATLAYER_SECRET_KEY"],
-    max_retries=3,   # attempts for reads and the 14 exact-header-replay mutations
+    max_retries=3,   # attempts for reads and the 41 exact-header-replay mutations
     timeout=30.0,    # seconds, per attempt
 )
 ```
@@ -355,21 +425,24 @@ seatlayer.request("POST", "/v1/events/ev_1/some-new-route", body={...})
 ## API surface
 
 The client exposes these resources. Performance Groups cover runs, sessions, holds, and bookings;
-Seasons cover catalogue, plan, sales, buyer-session, booking, renewal, occurrence, reporting,
-outbox, and support operations.
+Seasons cover catalogue, plan, performance, price, sales, checkout-test, buyer-session, booking,
+holder, order, renewal, occurrence, reporting, export, outbox, and support operations.
 
 | Resource | Methods |
 | --- | --- |
 | `charts` | `list` `list_all` `create` `retrieve` `update` `delete` `copy` `archive` `unarchive` `publish` |
 | `templates` | `instantiate_template` |
-| `events` | `list` `list_all` `create` `retrieve` `retrieve_configuration_binding` `update_configuration_binding` `update` `delete` `update_poster` `delete_poster` `update_chart` `close` `reopen` `archive` `list_ticket_releases` `update_ticket_releases` `close_ticket_release` `retrieve_hold_ttl` `update_hold_ttl` `retrieve_report` `retrieve_log` |
+| `events` | `list` `list_all` `create` `retrieve` `retrieve_configuration_binding` `update_configuration_binding` `update` `delete` `update_poster` `delete_poster` `update_chart` `close` `reopen` `archive` `list_ticket_releases` `update_ticket_releases` `close_ticket_release` `retrieve_hold_ttl` `update_hold_ttl` `retrieve_report` `retrieve_log` `retrieve_event_buyer_checkout` `replace_event_buyer_checkout` `retrieve_event_payment_gateway` `replace_event_payment_gateway` `retrieve_event_sales_readiness` `preflight_event_sales` `transition_event_sales` `retrieve_event_booking_fee` `replace_event_booking_fee` `list_event_discount_codes` `create_event_discount_code` `update_event_discount_code` `end_event_discount_code` `delete_event_discount_code` |
 | `inventory` | `hold` `hold_best_available` `book_best_available` `extend_hold` `retrieve_hold` `release` `book` `box_office_book` `unbook` `list_bookings` `retrieve_booking` `block` `unblock` `unblock_all` `retrieve_availability` `update_availability` |
 | `channels` | `list_channels` `create_channel` `update_channel` `update_assignments` `list_allocation` `retrieve_access_preview` `retrieve_report` `pause` `unpause` `archive` `create_buyer_access_session` `list_buyer_access_sessions` `revoke_buyer_access_session` `create_access_link` `list_access_links` `rotate_access_link` `revoke_access_link` |
 | `sessions` | `create_manage_session` `revoke_manage_session` `create_designer_session` `revoke_designer_session` |
 | `webhooks` | `list` `create` `update` `delete` `list_deliveries` |
 | `workspaces` | `list` `create` `retrieve` `update` |
 | `performance_groups` | `list` `create` `retrieve` `delete` `activate` `close` `retrieve_lifecycle` `create_buyer_access_session` `list_buyer_access_sessions` `revoke_buyer_access_session` `retrieve_hold` `book_hold` `retrieve_booking` |
-| `seasons` | 48 operations for catalogue and Plan lifecycle, sales windows, buyer access and booking, holder imports, renewals, occurrence amendments, reports, audit, outbox, and support export |
+| `seasons` | 87 operations for catalogue and Plan lifecycle, performances, package prices, sales windows, checkout tests, buyer access and booking, holder imports, holders, season orders, renewals, hosted renewals and renewal checkouts, occurrence amendments, returns and reclaims, bulk refunds, lapsed offer release and jobs, reports, CSV exports, audit, outbox, and support export |
+| `holders` | `list_customers` `retrieve_holder` `update_holder` `revoke_holder_sessions` `list_holder_seasons` `list_holder_tickets` `retrieve_holder_ticket` `create_holder_transfer` `list_holder_transfers` `cancel_holder_transfer` `accept_holder_transfer` `create_holder_return` `create_holder_renewal_checkout` `decline_holder_renewal_offer` |
+| `orders` | `list_orders` `retrieve_order` `list_order_tickets` `list_event_orders` `retrieve_event_order` `export_event_orders_csv` `refund_event_order` `cancel_event_order` `resend_event_order_tickets` |
+| `event_series` | `create_event_series` `list_event_series` `retrieve_event_series` `add_event_series_dates` `update_event_series` |
 
 Full reference: [SeatLayer server API events](https://docs.seatlayer.io/server-api/events/)
 
@@ -377,11 +450,8 @@ Full reference: [SeatLayer server API events](https://docs.seatlayer.io/server-a
 
 Some API surface is intentionally unwrapped, not merely pending:
 
-- **Hosted-checkout orders and refunds.** Reading or refunding a SeatLayer-hosted-checkout sale is
-  not a server-SDK capability. Those records only exist for organisations using hosted checkout; if
-  you run your own commerce store you refund in that store, through your own gateway.
-- **Connecting or assigning payment gateways.** Connecting one is a dashboard flow, so shipping only
-  the assignment half across seven SDKs would hand you a method that cannot yet succeed.
+- **Connecting payment gateways.** Connecting one is a dashboard flow. Once a gateway is connected,
+  `events.replace_event_payment_gateway` assigns it to an event.
 - **Realtime seat updates.** Live seat state reaches the *browser* through the widget's own socket.
   There is no server-side subscribe; a secret-key caller gets authoritative state from
   `events.retrieve_report()` and `inventory.retrieve_availability()`.

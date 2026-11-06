@@ -51,6 +51,7 @@
 - `create_season_renewal_offers` answers 201 `{"offers": [...]}` for 100 contracts or fewer, and 202 `{"job": ..., "batchId": ...}` above that: a `renewal_run` job makes the offers. Follow it with `retrieve_season_bulk_job`, then page the offers with `list_season_renewal_offers`.
 - `create_season_holder_import_from_season` answers 202 `{"job": ...}` when a commit brings across more than 100 holders: a `holder_import` job, whose `summary` has the same counts when it completes. Both creates can refuse with `409 job_mismatch` or `503 season_not_configured`; the bring-across also with `503 job_busy`.
 - `create_season_renewal_notices` takes up to 20,000 offer ids; more answers `422 too_many_offer_ids`.
+- `create_season_renewal_notices` takes `batch_id` (last argument) instead of `offer_ids`: email every open offer one `create_season_renewal_offers` batch made, such as the batch a `renewal_run` job made.
 
 ## 0.8.0 (2026-09-10)
 

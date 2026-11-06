@@ -507,3 +507,20 @@ def test_renewal_offer_lists_page_and_bulk_answers_come_back_as_sent() -> None:
         "https://api.seatlayer.io/v1/seasons/sea_1/renewal-hosted",
         "https://api.seatlayer.io/v1/seasons/sea_1/renewal-offers",
     ]
+
+
+def test_renewal_notices_for_one_offer_batch_send_its_batch_id() -> None:
+    calls: list[Any] = []
+
+    def transport(request: Any, _timeout: float) -> FakeResponse:
+        calls.append(request)
+        return FakeResponse(body={"scheduled": 240, "withoutEmail": 3})
+
+    seasons = SeatLayer("sk_test_abc", transport=transport).seasons
+    sent = seasons.create_season_renewal_notices("sea/a", batch_id="srb/1")
+
+    assert sent == {"scheduled": 240, "withoutEmail": 3}
+    assert calls[0].method == "POST"
+    assert calls[0].full_url == "https://api.seatlayer.io/v1/seasons/sea%2Fa/renewal-notices"
+    assert json.loads(calls[0].data) == {"batchId": "srb/1"}
+    assert calls[0].get_header("Idempotency-key") is None

@@ -2455,14 +2455,23 @@ class Seasons:
         )
 
     def create_season_renewal_notices(
-        self, season_key: str, offer_ids: Sequence[str] | None = None
+        self,
+        season_key: str,
+        offer_ids: Sequence[str] | None = None,
+        batch_id: str | None = None,
     ) -> Any:
         """Email renewal invitations now and reminders before the deadline.
 
         Leave ``offer_ids`` out to email every open offer. At most 20,000 ids;
-        more answers ``422 too_many_offer_ids``.
+        more answers ``422 too_many_offer_ids``. ``batch_id`` instead of
+        ``offer_ids``: every open offer one renewal offer batch made (its ``batchId``).
         """
-        body = _fields((("offerIds", None if offer_ids is None else list(offer_ids)),))
+        body = _fields(
+            (
+                ("offerIds", None if offer_ids is None else list(offer_ids)),
+                ("batchId", batch_id),
+            )
+        )
         return self._http.post(
             self._path(season_key, "/renewal-notices"), body=body or None
         )

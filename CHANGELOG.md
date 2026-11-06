@@ -52,6 +52,7 @@
 - `create_season_holder_import_from_season` answers 202 `{"job": ...}` when a commit brings across more than 100 holders: a `holder_import` job, whose `summary` has the same counts when it completes. Both creates can refuse with `409 job_mismatch` or `503 season_not_configured`; the bring-across also with `503 job_busy`.
 - `create_season_renewal_notices` takes up to 20,000 offer ids; more answers `422 too_many_offer_ids`.
 - `create_season_renewal_notices` takes `batch_id` (last argument) instead of `offer_ids`: email every open offer one `create_season_renewal_offers` batch made, such as the batch a `renewal_run` job made.
+- Single tickets on a season: `create_season` and `update_season` take `single_tickets` (last argument; default `False`, Season only; anything else answers `422 invalid_single_tickets`). Every season read carries `singleTickets`, and a season on sale may carry `singleTicketsNotOpen`. `update_season`, `open_season_sales` and `resume_season_sales` answer `singleTicketDates` (`direction`, `opened`, `closed`, `notOpened`, `jobId`) when they open or stop the dates' own sales; a `season_singles` job does it for more than 12 upcoming dates.
 
 ## 0.8.0 (2026-09-10)
 

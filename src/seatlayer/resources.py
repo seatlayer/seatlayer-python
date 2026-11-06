@@ -1628,11 +1628,19 @@ class Seasons:
         source_performance_group_keys: Sequence[str] | None = None,
         edition: str | None | _Unset = _UNSET,
         idempotency_key: str | None = None,
+        single_tickets: bool | None = None,
     ) -> Any:
+        """Create a draft Season.
+
+        ``single_tickets=True`` makes each date also sell its own single tickets
+        once the Season is on sale; the default is Season only.
+        """
         body = self._selection(event_keys, source_performance_group_keys)
         body["name"] = name
         if edition is not _UNSET:
             body["edition"] = edition
+        if single_tickets is not None:
+            body["singleTickets"] = single_tickets
         return self._http.post_with_header_replay(
             "/v1/seasons", body=body, idempotency_key=idempotency_key
         )
@@ -1651,6 +1659,7 @@ class Seasons:
         transfer_cutoff_hours: int | None | _Unset = _UNSET,
         return_cutoff_hours: int | None | _Unset = _UNSET,
         audience: Literal["embed_only", "public"] | None = None,
+        single_tickets: bool | None = None,
     ) -> Any:
         """Rename a draft, or set how the Season sells.
 
@@ -1660,6 +1669,9 @@ class Seasons:
         sent to others, or a seat given back; ``None`` means until it starts.
         ``audience="public"`` lists the Season on your SeatLayer website; an
         ended Season cannot become public (``409 sales_ended``).
+        ``single_tickets`` turned on while the Season is on sale opens each
+        upcoming date's own sales through its readiness checks; turned off, they
+        stop. The answer's ``singleTicketDates`` says which dates opened or stopped.
         """
         body: dict[str, Any] = {"expectedRevision": expected_revision}
         if name is not None:
@@ -1667,7 +1679,11 @@ class Seasons:
         if edition is not _UNSET:
             body["edition"] = edition
         body.update(_fields(
-            (("checkoutMode", checkout_mode), ("audience", audience)),
+            (
+                ("checkoutMode", checkout_mode),
+                ("audience", audience),
+                ("singleTickets", single_tickets),
+            ),
             (
                 ("transferCutoffHours", transfer_cutoff_hours),
                 ("returnCutoffHours", return_cutoff_hours),

@@ -524,3 +524,40 @@ def test_renewal_notices_for_one_offer_batch_send_its_batch_id() -> None:
     assert calls[0].full_url == "https://api.seatlayer.io/v1/seasons/sea%2Fa/renewal-notices"
     assert json.loads(calls[0].data) == {"batchId": "srb/1"}
     assert calls[0].get_header("Idempotency-key") is None
+
+
+def test_single_tickets_reach_the_wire_on_create_and_update() -> None:
+    calls: list[Any] = []
+    updated = {
+        "season": {"key": "sea_1", "singleTickets": True},
+        "singleTicketDates": {
+            "direction": "open",
+            "opened": ["ev_1"],
+            "closed": [],
+            "notOpened": [],
+            "jobId": None,
+        },
+    }
+
+    def transport(request: Any, _timeout: float) -> FakeResponse:
+        calls.append(request)
+        return FakeResponse(body=updated)
+
+    seasons = SeatLayer("sk_test_abc", transport=transport).seasons
+    seasons.create_season("Series", event_keys=["ev_1", "ev_2"], single_tickets=True)
+    answer = seasons.update_season("sea/a", 5, single_tickets=False)
+    seasons.update_season("sea/a", 6, name="Series 2")
+
+    assert [(call.method, call.full_url.removeprefix("https://api.seatlayer.io")) for call in calls] == [
+        ("POST", "/v1/seasons"),
+        ("PATCH", "/v1/seasons/sea%2Fa"),
+        ("PATCH", "/v1/seasons/sea%2Fa"),
+    ]
+    assert json.loads(calls[0].data) == {
+        "eventKeys": ["ev_1", "ev_2"],
+        "name": "Series",
+        "singleTickets": True,
+    }
+    assert json.loads(calls[1].data) == {"expectedRevision": 5, "singleTickets": False}
+    assert json.loads(calls[2].data) == {"expectedRevision": 6, "name": "Series 2"}
+    assert answer["singleTicketDates"]["opened"] == ["ev_1"]

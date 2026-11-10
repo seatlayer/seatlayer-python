@@ -12,7 +12,10 @@ from typing_extensions import Self
 
 from seatlayer import (
     SeatLayer,
+    SeatLayerConflictError,
+    SeatLayerError,
     SeatLayerValidationError,
+    is_season_date_leave_pending,
     season_date_cancel_void_job_id,
     season_holder_import_rows_per_call,
 )
@@ -33,7 +36,7 @@ class FakeResponse(io.BytesIO):
 CSV = "holder,email\r\nA. Fan,fan@example.com\r\n"
 
 
-def test_maps_all_87_season_operations_and_replay_classes() -> None:
+def test_maps_all_90_season_operations_and_replay_classes() -> None:
     calls: list[Any] = []
 
     def transport(request: Any, _timeout: float) -> FakeResponse:
@@ -169,8 +172,16 @@ def test_maps_all_87_season_operations_and_replay_classes() -> None:
         provider="stripe",
         idempotency_key="renew-1",
     )
+    # Season seats: set aside, read, release (phase 4).
+    seasons.set_aside_season_block(
+        key, 7, keep_for_single_tickets={"labels": ["A-6"]}, idempotency_key="block-1"
+    )
+    seasons.retrieve_season_block(key)
+    seasons.release_season_block(
+        key, 7, {"all": True}, event_keys=["ev/1"], at="2026-12-01T10:00:00Z", reason="Unsold"
+    )
 
-    assert len(calls) == 87
+    assert len(calls) == 90
     actual = [(call.method, call.full_url.removeprefix("https://api.seatlayer.io")) for call in calls]
     assert actual == [
         ("GET", "/v1/seasons?workspaceId=ws+1&structureState=draft&limit=20&cursor=c%2F1"),
@@ -260,6 +271,9 @@ def test_maps_all_87_season_operations_and_replay_classes() -> None:
         ("GET", "/v1/seasons/sea%2Fa/renewal-offers/offer%2F1/quote"),
         ("POST", "/v1/seasons/sea%2Fa/renewal-offers/offer%2F1/intent"),
         ("POST", "/v1/seasons/sea%2Fa/renewal-offers/offer%2F1/checkout"),
+        ("POST", "/v1/seasons/sea%2Fa/block"),
+        ("GET", "/v1/seasons/sea%2Fa/block"),
+        ("POST", "/v1/seasons/sea%2Fa/block/release"),
     ]
     assert calls[26].data is None
 
@@ -331,6 +345,15 @@ def test_maps_all_87_season_operations_and_replay_classes() -> None:
             "buyerName": "Ana Silva",
             "provider": "stripe",
         },
+        {"expectedRevision": 7, "keepForSingleTickets": {"labels": ["A-6"]}},
+        None,
+        {
+            "expectedRevision": 7,
+            "scope": {"all": True},
+            "eventKeys": ["ev/1"],
+            "at": "2026-12-01T10:00:00Z",
+            "reason": "Unsold",
+        },
     ]
 
     # CSV exports hand back the body as text; the 204 delete hands back nothing.
@@ -341,14 +364,14 @@ def test_maps_all_87_season_operations_and_replay_classes() -> None:
 
     caller_keys = {
         48: "from-season-1", 50: "perf-1", 51: "attach-1", 52: "perf-del-1", 53: "plan-upd-1",
-        80: "refund-date-1", 86: "renew-1",
+        80: "refund-date-1", 86: "renew-1", 87: "block-1",
     }
     for index, expected_key in caller_keys.items():
         assert calls[index].get_header("Idempotency-key") == expected_key
 
     replay_indexes = {
         2, 4, 5, 10, 18, 27, 29, 38,
-        48, 50, 51, 52, 53, 54, 55, 56, 58, 60, 61, 62, 66, 67, 68, 80, 81, 86,
+        48, 50, 51, 52, 53, 54, 55, 56, 58, 60, 61, 62, 66, 67, 68, 80, 81, 86, 87, 89,
     }
     for index, request in enumerate(calls):
         headers = {name.lower(): value for name, value in request.header_items()}
@@ -570,6 +593,87 @@ def test_single_tickets_reach_the_wire_on_create_and_update() -> None:
     assert answer["singleTicketDates"]["opened"] == ["ev_1"]
 
 
+def test_inventory_mode_reaches_the_wire_only_when_given_and_reads_back() -> None:
+    calls: list[Any] = []
+    block_season = {"key": "sea_1", "revision": 5, "inventoryMode": "block"}
+    per_hold_season = {"key": "sea_2", "revision": 1, "inventoryMode": "per_hold"}
+    answers: list[Any] = [
+        {"season": block_season},
+        {"season": per_hold_season},
+        {"season": block_season},
+        {"season": per_hold_season},
+        {"season": per_hold_season},
+        {"season": block_season},
+        {"seasons": [block_season, per_hold_season], "nextCursor": None},
+    ]
+
+    def transport(request: Any, _timeout: float) -> FakeResponse:
+        calls.append(request)
+        return FakeResponse(body=answers.pop(0))
+
+    seasons = SeatLayer("sk_test_abc", transport=transport).seasons
+    created = seasons.create_season("Series", event_keys=["ev_1", "ev_2"], inventory_mode="block")
+    seasons.create_season("Series", event_keys=["ev_1", "ev_2"])
+    turned_on = seasons.update_season("sea_1", 5, inventory_mode="block")
+    seasons.update_season("sea_1", 5, inventory_mode="per_hold")
+    seasons.update_season("sea_1", 5, name="Series 2")
+    retrieved = seasons.retrieve_season("sea_1")
+    listed = seasons.list_seasons()
+
+    assert [(call.method, call.full_url.removeprefix("https://api.seatlayer.io")) for call in calls] == [
+        ("POST", "/v1/seasons"),
+        ("POST", "/v1/seasons"),
+        ("PATCH", "/v1/seasons/sea_1"),
+        ("PATCH", "/v1/seasons/sea_1"),
+        ("PATCH", "/v1/seasons/sea_1"),
+        ("GET", "/v1/seasons/sea_1"),
+        ("GET", "/v1/seasons"),
+    ]
+    assert json.loads(calls[0].data) == {
+        "eventKeys": ["ev_1", "ev_2"],
+        "name": "Series",
+        "inventoryMode": "block",
+    }
+    assert json.loads(calls[1].data) == {"eventKeys": ["ev_1", "ev_2"], "name": "Series"}
+    assert json.loads(calls[2].data) == {"expectedRevision": 5, "inventoryMode": "block"}
+    assert json.loads(calls[3].data) == {"expectedRevision": 5, "inventoryMode": "per_hold"}
+    assert json.loads(calls[4].data) == {"expectedRevision": 5, "name": "Series 2"}
+    assert created["season"]["inventoryMode"] == "block"
+    assert turned_on["season"]["inventoryMode"] == "block"
+    assert retrieved["season"]["inventoryMode"] == "block"
+    assert [season["inventoryMode"] for season in listed["seasons"]] == ["block", "per_hold"]
+    assert answers == []
+
+
+def test_inventory_mode_refusals_reach_the_caller_with_their_code() -> None:
+    refusals = [
+        (409, "season_block_packages"),
+        (409, "season_block_on_sale"),
+        (409, "season_not_draft_or_active"),
+        (409, "season_block_exists"),
+        (422, "invalid_inventory_mode"),
+    ]
+    answers: list[Any] = [
+        (status, {"error": code, "code": code, "message": code}) for status, code in refusals
+    ]
+    answers.append((409, {"error": "block_not_ready", "code": "block_not_ready"}))
+
+    def transport(request: Any, _timeout: float) -> FakeResponse:
+        status, body = answers.pop(0)
+        raise _error(request, status, body)
+
+    seasons = SeatLayer("sk_test_abc", transport=transport).seasons
+    for status, code in refusals:
+        with pytest.raises(SeatLayerError) as raised:
+            seasons.update_season("sea_1", 5, inventory_mode="block")
+        assert raised.value.status == status
+        assert raised.value.code == code
+    with pytest.raises(SeatLayerConflictError) as not_ready:
+        seasons.open_season_sales("sea_1", 5)
+    assert not_ready.value.code == "block_not_ready"
+    assert answers == []
+
+
 def test_names_the_cancelled_date_void_job_and_sizes_a_holder_import_call() -> None:
     assert season_date_cancel_void_job_id("amd_1") == "sbj_void_amd_1"
     assert [season_holder_import_rows_per_call(dates) for dates in (1, 20, 21, 50)] == [
@@ -599,3 +703,58 @@ def test_names_the_cancelled_date_void_job_and_sizes_a_holder_import_call() -> N
     assert raised.value.body["maxRows"] == 43
     # A 422 is the request itself, so even this header-replay call is sent once.
     assert len(calls) == 1
+
+
+def _error(request: Any, status: int, body: dict[str, Any]) -> urllib.error.HTTPError:
+    return urllib.error.HTTPError(
+        request.full_url, status, "error", {},  # type: ignore[arg-type]
+        io.BytesIO(json.dumps(body).encode()),
+    )
+
+
+def test_season_seats_answers_reach_the_caller() -> None:
+    """The phase 4 answers, shaped as the API sends them (the app repo's contract §2, §6 and §8)."""
+    job = {
+        "jobId": "sbsa_sbp_pkg_1", "kind": "season_block_set_aside", "state": "running",
+        "counts": {"total": 3, "done": 1, "skipped": 0, "failed": 0},
+    }
+    block = {"mode": "per_hold", "state": "setting_aside", "revision": 7, "counts": {"setAside": 5}}
+    pending = {
+        "state": "finishing", "code": "block_date_leave_pending", "retryable": True,
+        "eventKey": "ev_1", "shardsLeft": [1], "shardCount": 2, "message": "Still leaving one shard",
+    }
+    answers: list[Any] = [
+        (202, {"job": job, "block": block}),
+        (200, {"job": {**job, "kind": "season_block_release", "jobId": "sbr_1"}}),
+        (202, pending),
+        (202, pending),
+    ]
+    refusals = [
+        "season_block_not_enabled", "block_exists", "season_block_set_aside",
+        "season_inventory_locked", "date_leave_in_progress",
+    ]
+    answers += [(409, {"error": code, "code": code, "message": code}) for code in refusals]
+
+    def transport(request: Any, _timeout: float) -> FakeResponse:
+        status, body = answers.pop(0)
+        if status >= 400:
+            raise _error(request, status, body)
+        return FakeResponse(status, body)
+
+    seasons = SeatLayer("sk_test_abc", transport=transport).seasons
+    set_aside = seasons.set_aside_season_block("sea_1", 7)
+    assert set_aside == {"job": job, "block": block}
+    # A job of a kind this SDK did not know before reads as any other.
+    assert seasons.retrieve_season_bulk_job("sea_1", "sbr_1")["job"]["kind"] == "season_block_release"
+    cancel = seasons.create_season_amendment("sea_1", "ev_1", "cancel")
+    past = seasons.mark_season_performance_past("sea_1", "ev_1")
+    assert is_season_date_leave_pending(cancel) and is_season_date_leave_pending(past)
+    assert not is_season_date_leave_pending({"amendment": {"amendmentId": "am_1"}})
+    assert not is_season_date_leave_pending(None)
+    assert not is_season_date_leave_pending({"state": "finishing", "code": "season_busy"})
+    assert not is_season_date_leave_pending({"state": "done", "code": "block_date_leave_pending"})
+    for code in refusals:
+        with pytest.raises(SeatLayerConflictError) as raised:
+            seasons.release_season_block("sea_1", 7, {"labels": ["A-1"]})
+        assert raised.value.code == code
+    assert answers == []

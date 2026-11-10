@@ -59,6 +59,8 @@ WebhookEventName = Literal[
     "season.bulk_action.completed",
     "season.order.paid",
     "season.order.refunded",
+    "season.block.ready",
+    "season.block.released",
     "series.created",
     "series.dates_added",
 ]
@@ -348,3 +350,36 @@ class EventLogEntry(TypedDict):
 class EventLogPage(TypedDict):
     entries: list[EventLogEntry]
     nextBefore: int | None
+
+
+class SeasonSeatSelection(TypedDict, total=False):
+    """Seats kept for single tickets, or released: sections, categories or seats."""
+
+    sectionIds: list[str]
+    categoryKeys: list[str]
+    labels: list[str]
+
+
+class SeasonBlockReleaseScope(TypedDict, total=False):
+    """What a release covers: exactly one of ``all=True``, ``sectionIds``, ``categoryKeys`` or ``labels``."""
+
+    all: Literal[True]
+    sectionIds: list[str]
+    categoryKeys: list[str]
+    labels: list[str]
+
+
+class SeasonDateLeavePending(TypedDict):
+    """The ``202`` a season-seats season's date cancel or past date answers while the date leaves every season seat.
+
+    It finishes by itself: send the same request again after ``Retry-After`` to read how it ended.
+    Check for it with :func:`seatlayer.is_season_date_leave_pending`.
+    """
+
+    state: Literal["finishing"]
+    code: Literal["block_date_leave_pending"]
+    retryable: Literal[True]
+    eventKey: str
+    shardsLeft: list[int]
+    shardCount: int
+    message: str

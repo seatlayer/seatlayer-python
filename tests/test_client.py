@@ -5,7 +5,7 @@ from __future__ import annotations
 import io
 import json
 import urllib.error
-from typing import Any
+from typing import Any, get_args
 
 import pytest
 
@@ -19,6 +19,7 @@ from seatlayer import (
     SeatLayerError,
     SeatLayerRateLimitError,
     SeatLayerValidationError,
+    WebhookEventName,
 )
 
 
@@ -861,6 +862,14 @@ class TestWireContracts:
         assert calls[3].full_url.endswith(
             "/v1/webhooks/wh_1/deliveries?limit=10&status=failed&before=200"
         )
+
+    def test_webhooks_accept_every_event_name_the_sdk_types(self) -> None:
+        names = list(get_args(WebhookEventName))
+        assert "season.block.ready" in names and "season.block.released" in names
+        assert "season.plan.published" in names
+        sdk, calls = make_client([{"status": 201, "body": {"sub": {}, "secret": "whsec_once"}}])
+        sdk.webhooks.create("https://hooks.example/seatlayer", names)
+        assert json.loads(calls[0].data)["events"] == names
 
     def test_webhooks_reject_unknown_enums_before_transport(self) -> None:
         sdk, calls = make_client([])

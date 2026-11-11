@@ -1,6 +1,6 @@
 # Changelog
 
-## Next: 0.9.0, season seats (joins the season 2a section under ## 0.9.0 in the version PR; publish only once the phase 4 API is live on production)
+## 0.9.0 (2026-11-11)
 
 - Season seats: `set_aside_season_block` (`POST /v1/seasons/:key/block`), `retrieve_season_block`
   and `release_season_block` (`POST /v1/seasons/:key/block/release`). Each write answers
@@ -25,8 +25,6 @@
   also answer `season_block_packages`, `season_block_one_package`, `plan_not_published`,
   `season_block_undoing`, `chart_unavailable` and `dates_missing`, and the release
   `release_mismatch`. On `503 season_busy` or `season_not_configured`, send the same request again.
-
-## Unreleased
 
 - A date its season cancelled never opens again: `transition_event_sales` to `testable` or
   `live` and `reopen` answer `409 season_date_cancelled`, and `update_event_series` with

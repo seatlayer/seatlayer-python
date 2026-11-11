@@ -13,6 +13,7 @@ from .errors import (
     SeatLayerRateLimitError,
     SeatLayerValidationError,
 )
+from .resources import season_date_cancel_void_job_id, season_holder_import_rows_per_call
 from .types import (
     AccessLink,
     AccessLinkList,
@@ -94,5 +95,7 @@ __all__ = [
     "WebhookSubscription",
     "WebhookVerificationError",
     "__version__",
+    "season_date_cancel_void_job_id",
+    "season_holder_import_rows_per_call",
     "verify_webhook",
 ]

@@ -6,7 +6,7 @@ call is named the same thing in every SeatLayer server SDK.
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from typing import Any, Literal, cast
 
 from .http import HttpClient, quote
@@ -38,12 +38,69 @@ EventHostingRegion = Literal[
     "oceania", "africa", "middle-east",
 ]
 
+SeasonHolderStatus = Literal["active", "cancelled", "renewal"]
+OrderStatus = Literal[
+    "pending", "authorized", "inventory_committed", "confirmed", "compensating",
+    "failed", "expired", "refunded", "partially_refunded",
+]
+EventOrderStatus = Literal[
+    "pending", "authorized", "inventory_committed", "confirmed", "compensating",
+    "failed", "expired", "refunded", "partially_refunded", "partially_cancelled",
+]
+OrderCancelReason = Literal["lost_dispute", "refunded_elsewhere", "other"]
+
 
 class _Unset:
     """Distinguish an omitted nullable request field from explicit JSON null."""
 
 
 _UNSET = _Unset()
+
+
+def _fields(
+    fields: Iterable[tuple[str, Any]],
+    nullable: Iterable[tuple[str, Any]] = (),
+) -> dict[str, Any]:
+    """A request body from optional fields.
+
+    ``fields`` are left out when ``None``. ``nullable`` fields are left out only
+    when unset, so an explicit ``None`` is sent as JSON null.
+    """
+    body = {key: value for key, value in fields if value is not None}
+    body.update((key, value) for key, value in nullable if value is not _UNSET)
+    return body
+
+
+def _renewal_checkout_body(
+    return_url: str,
+    buyer_email: str | None,
+    buyer_name: str | None,
+    provider: str | None,
+) -> dict[str, Any]:
+    body: dict[str, Any] = {"returnUrl": return_url}
+    body.update(_fields((
+        ("buyerEmail", buyer_email),
+        ("buyerName", buyer_name),
+        ("provider", provider),
+    )))
+    return body
+
+
+def _order_cancel_body(
+    reason: OrderCancelReason,
+    note: str | None,
+    refund_confirmed: bool | None,
+    used_tickets_acknowledged: bool | None,
+    notify_buyer: bool | None,
+) -> dict[str, Any]:
+    body = _fields((
+        ("note", note),
+        ("refundConfirmed", refund_confirmed),
+        ("usedTicketsAcknowledged", used_tickets_acknowledged),
+        ("notifyBuyer", notify_buyer),
+    ))
+    body["reason"] = reason
+    return body
 
 
 class Charts:
@@ -242,19 +299,21 @@ class Events:
         limit: int | None = None,
         cursor: str | None = None,
         counts: bool = True,
+        series_key: str | None = None,
     ) -> Any:
         """One page of events.
 
         Live availability ``counts`` cost one round-trip per event server-side.
         They are on by default because most callers want them; pass
         ``counts=False`` when paging a whole catalogue, where you almost
-        certainly do not.
+        certainly do not. ``series_key`` lists only the dates of one event series.
         """
         query: dict[str, Any] = {
             "workspaceId": workspace_id,
             "externalRef": external_ref,
             "limit": limit,
             "cursor": cursor,
+            "seriesKey": series_key,
         }
         if not counts:
             query["counts"] = "0"
@@ -266,6 +325,7 @@ class Events:
         external_ref: str | None = None,
         limit: int | None = None,
         counts: bool = False,
+        series_key: str | None = None,
     ) -> Iterator[dict[str, Any]]:
         """Every event, paging transparently.
 
@@ -274,7 +334,7 @@ class Events:
         """
         cursor: str | None = None
         while True:
-            page = self.list(workspace_id, external_ref, limit, cursor, counts)
+            page = self.list(workspace_id, external_ref, limit, cursor, counts, series_key)
             yield from page.get("events", [])
             cursor = page.get("nextCursor")
             if not cursor:
@@ -399,6 +459,10 @@ class Events:
         return self._http.post(f"/v1/events/{quote(event_key)}/close")
 
     def reopen(self, event_key: str) -> Any:
+        """Open a paused event's sales again.
+
+        A date its season cancelled never opens again: ``409 season_date_cancelled``.
+        """
         return self._http.post(f"/v1/events/{quote(event_key)}/reopen")
 
     def archive(self, event_key: str) -> Any:
@@ -456,6 +520,162 @@ class Events:
                 query={"limit": limit, "before": before},
             ),
         )
+
+    # Sales settings. Method names here keep the full operation id
+    # (``retrieve_event_buyer_checkout``), as the Season methods do.
+
+    def retrieve_event_buyer_checkout(self, event_key: str) -> Any:
+        """Retrieve who takes payment for an event, and what blocks a change."""
+        return self._http.get(f"/v1/events/{quote(event_key)}/buyer-checkout")
+
+    def replace_event_buyer_checkout(
+        self,
+        event_key: str,
+        buyer_checkout: Literal["seatlayer", "integrator"],
+        expected_revision: int,
+    ) -> Any:
+        """Choose SeatLayer checkout or your own for an event. Sent once."""
+        return self._http.put(
+            f"/v1/events/{quote(event_key)}/buyer-checkout",
+            body={"buyerCheckout": buyer_checkout, "expectedRevision": expected_revision},
+        )
+
+    def retrieve_event_payment_gateway(
+        self, event_key: str, currency: str | None = None
+    ) -> Any:
+        """Retrieve an event's payment gateway and the ones it could use.
+
+        ``currency`` checks the options against that currency instead of the event's.
+        """
+        return self._http.get(
+            f"/v1/events/{quote(event_key)}/payment-gateway",
+            query={"currency": currency},
+        )
+
+    def replace_event_payment_gateway(
+        self,
+        event_key: str,
+        connection_id: str | None | _Unset = _UNSET,
+        provider: str | None | _Unset = _UNSET,
+    ) -> Any:
+        """Assign one of the organization's connected gateways to an event.
+
+        Connecting a gateway stays a dashboard flow. Sent once, never retried
+        automatically.
+        """
+        body = _fields((), (("connectionId", connection_id), ("provider", provider)))
+        return self._http.put(
+            f"/v1/events/{quote(event_key)}/payment-gateway", body=body or None
+        )
+
+    def retrieve_event_sales_readiness(self, event_key: str) -> Any:
+        """Retrieve what an event still needs before its next sales step."""
+        return self._http.get(f"/v1/events/{quote(event_key)}/sales/readiness")
+
+    def preflight_event_sales(self, event_key: str, order_id: str) -> Any:
+        """Record a test order as the event's sales preflight. Sent once."""
+        return self._http.post(
+            f"/v1/events/{quote(event_key)}/sales/preflight", body={"orderId": order_id}
+        )
+
+    def transition_event_sales(
+        self,
+        event_key: str,
+        to: Literal["setup", "testable", "live", "paused", "ended"],
+        expected_revision: int,
+        reason: str | None = None,
+    ) -> Any:
+        """Move an event's sales to another state, such as live or paused. Sent once.
+
+        A date its season cancelled never opens again: moving it to ``testable``
+        or ``live`` answers ``409 season_date_cancelled``.
+        """
+        body: dict[str, Any] = {"to": to, "expectedRevision": expected_revision}
+        if reason is not None:
+            body["reason"] = reason
+        return self._http.post(
+            f"/v1/events/{quote(event_key)}/sales/transition", body=body
+        )
+
+    def retrieve_event_booking_fee(self, event_key: str) -> Any:
+        """Retrieve an event's booking fee."""
+        return self._http.get(f"/v1/events/{quote(event_key)}/booking-fee")
+
+    def replace_event_booking_fee(self, event_key: str, booking_fee_minor: int | None) -> Any:
+        """Set an event's booking fee in minor units, or pass ``None`` to clear it."""
+        return self._http.put(
+            f"/v1/events/{quote(event_key)}/booking-fee",
+            body={"bookingFeeMinor": booking_fee_minor},
+        )
+
+    def list_event_discount_codes(self, event_key: str) -> Any:
+        """List an event's discount codes."""
+        return self._http.get(f"/v1/events/{quote(event_key)}/discount-codes")
+
+    def create_event_discount_code(
+        self,
+        event_key: str,
+        code: str,
+        kind: Literal["percent", "amount"],
+        percent: int | None = None,
+        amount_minor: int | None = None,
+        starts_at: int | None | _Unset = _UNSET,
+        ends_at: int | None | _Unset = _UNSET,
+        max_uses: int | None | _Unset = _UNSET,
+        active: bool | None = None,
+    ) -> Any:
+        """Create a discount code for an event.
+
+        Give ``percent`` for a ``"percent"`` code and ``amount_minor`` for an
+        ``"amount"`` code. Times are epoch milliseconds. Sent once, never retried
+        automatically.
+        """
+        body = _fields(
+            (("percent", percent), ("amountMinor", amount_minor), ("active", active)),
+            (("startsAt", starts_at), ("endsAt", ends_at), ("maxUses", max_uses)),
+        )
+        body.update({"code": code, "kind": kind})
+        return self._http.post(f"/v1/events/{quote(event_key)}/discount-codes", body=body)
+
+    def update_event_discount_code(
+        self,
+        event_key: str,
+        code_id: str,
+        code: str | None = None,
+        kind: Literal["percent", "amount"] | None = None,
+        percent: int | None = None,
+        amount_minor: int | None = None,
+        starts_at: int | None | _Unset = _UNSET,
+        ends_at: int | None | _Unset = _UNSET,
+        max_uses: int | None | _Unset = _UNSET,
+        active: bool | None = None,
+        state: Literal["active", "paused"] | None = None,
+    ) -> Any:
+        """Change or pause a discount code. Sent once, never retried automatically."""
+        body = _fields(
+            (
+                ("code", code),
+                ("kind", kind),
+                ("percent", percent),
+                ("amountMinor", amount_minor),
+                ("active", active),
+                ("state", state),
+            ),
+            (("startsAt", starts_at), ("endsAt", ends_at), ("maxUses", max_uses)),
+        )
+        return self._http.patch(
+            f"/v1/events/{quote(event_key)}/discount-codes/{quote(code_id)}", body=body
+        )
+
+    def end_event_discount_code(self, event_key: str, code_id: str) -> Any:
+        """End a discount code for good."""
+        return self._http.post(
+            f"/v1/events/{quote(event_key)}/discount-codes/{quote(code_id)}/end"
+        )
+
+    def delete_event_discount_code(self, event_key: str, code_id: str) -> None:
+        """Delete a discount code nobody has used."""
+        self._http.delete(f"/v1/events/{quote(event_key)}/discount-codes/{quote(code_id)}")
 
 
 class Inventory:
@@ -1092,6 +1312,16 @@ class Webhooks:
         "hold.extended",
         "event.created",
         "event.soldout",
+        "series.created",
+        "series.dates_added",
+        "order.paid",
+        "order.refunded",
+        "order.cancelled",
+        "customer.created",
+        "customer.email_changed",
+        "season.ticket.transfer_sent",
+        "season.ticket.transferred",
+        "season.ticket.transfer_cancelled",
     })
 
     def __init__(self, http: HttpClient) -> None:
@@ -1347,6 +1577,25 @@ class PerformanceGroups:
         )
 
 
+def season_date_cancel_void_job_id(amendment_id: str) -> str:
+    """The job voiding a cancelled date's tickets: ``sbj_void_`` and the cancel's ``amendmentId``.
+
+    Cancelling a date starts it (a repeated cancel joins it); follow it with
+    :meth:`Seasons.retrieve_season_bulk_job`. Each season ticket it voids is told by
+    ``season.ticket.voided`` with reason ``date_cancelled``.
+    """
+    return f"sbj_void_{amendment_id}"
+
+
+def season_holder_import_rows_per_call(dates: int) -> int:
+    """The most rows one ``create_season_holder_import`` call takes for a package of ``dates``.
+
+    Each row is fenced on every date: 100 up to 20 dates, then ``2300 // (dates + 3)``, 43 at
+    50. A call with more answers ``422 invalid_rows`` with ``maxRows``.
+    """
+    return max(1, min(100, 2300 // (max(1, dates) + 3)))
+
+
 class Seasons:
     """Fixed Renewable Season organizer operations for trusted backends.
 
@@ -1406,11 +1655,19 @@ class Seasons:
         source_performance_group_keys: Sequence[str] | None = None,
         edition: str | None | _Unset = _UNSET,
         idempotency_key: str | None = None,
+        single_tickets: bool | None = None,
     ) -> Any:
+        """Create a draft Season.
+
+        ``single_tickets=True`` makes each date also sell its own single tickets
+        once the Season is on sale; the default is Season only.
+        """
         body = self._selection(event_keys, source_performance_group_keys)
         body["name"] = name
         if edition is not _UNSET:
             body["edition"] = edition
+        if single_tickets is not None:
+            body["singleTickets"] = single_tickets
         return self._http.post_with_header_replay(
             "/v1/seasons", body=body, idempotency_key=idempotency_key
         )
@@ -1425,12 +1682,45 @@ class Seasons:
         name: str | None = None,
         edition: str | None | _Unset = _UNSET,
         idempotency_key: str | None = None,
+        checkout_mode: Literal["seatlayer", "server"] | None = None,
+        transfer_cutoff_hours: int | None | _Unset = _UNSET,
+        return_cutoff_hours: int | None | _Unset = _UNSET,
+        audience: Literal["embed_only", "public"] | None = None,
+        single_tickets: bool | None = None,
     ) -> Any:
+        """Rename a draft, or set how the Season sells.
+
+        ``checkout_mode`` says who takes the money; it cannot go back to
+        undecided and is fixed once a live booking exists. The cutoffs are hours
+        before a date starts (0 to 720) after which its tickets can no longer be
+        sent to others, or a seat given back; ``None`` means the club default
+        (Settings › Ticket site), or until it starts when the club has none.
+        ``audience="public"`` lists the Season on your SeatLayer website; an
+        ended Season cannot become public (``409 sales_ended``).
+        ``single_tickets`` turned on while the Season is on sale opens each
+        upcoming date's own sales through its readiness checks; turned off, they
+        stop. The answer's ``singleTicketDates`` says which dates opened or stopped;
+        its ``jobRefused``, when present, says why the ``season_singles`` job could not
+        start. The change still stands, and sending ``single_tickets=True`` again opens
+        any date still not open. An exact retry with the same ``expected_revision`` and
+        ``idempotency_key`` is not applied twice.
+        """
         body: dict[str, Any] = {"expectedRevision": expected_revision}
         if name is not None:
             body["name"] = name
         if edition is not _UNSET:
             body["edition"] = edition
+        body.update(_fields(
+            (
+                ("checkoutMode", checkout_mode),
+                ("audience", audience),
+                ("singleTickets", single_tickets),
+            ),
+            (
+                ("transferCutoffHours", transfer_cutoff_hours),
+                ("returnCutoffHours", return_cutoff_hours),
+            ),
+        ))
         return self._http.mutation_with_header_replay(
             "PATCH", self._path(season_key), body=body, idempotency_key=idempotency_key
         )
@@ -1500,6 +1790,13 @@ class Seasons:
         )
 
     def open_season_sales(self, season_key: str, expected_revision: int) -> Any:
+        """Open sales. Answers ``{"season": ..., "warnings": [...]}``.
+
+        ``warnings`` says what is advised but not required, such as
+        ``checkout_test_missing`` until a checkout test or rehearsal has passed.
+        Refused with ``409 plan_not_published`` or ``409 checkout_mode_not_chosen``
+        until a package is published and a checkout mode is chosen.
+        """
         return self._sales(season_key, "open", expected_revision)
 
     def pause_season_sales(self, season_key: str, expected_revision: int) -> Any:
@@ -1615,6 +1912,15 @@ class Seasons:
         dry_run: bool | None = None,
         idempotency_key: str | None = None,
     ) -> Any:
+        """Import incumbent holders.
+
+        Each row is ``{"rowId", "holderRef", "priorPlanActivationId",
+        "priorContractRef", "labels"}`` plus optional ``existingBookingRef``,
+        ``holderEmail`` and ``holderName``. A call takes at most
+        :func:`season_holder_import_rows_per_call` rows for the package's dates (100
+        up to 20 dates); more raises :class:`SeatLayerValidationError` with code
+        ``invalid_rows`` and ``maxRows`` in its ``body``.
+        """
         body: dict[str, Any] = {
             "successorPlanActivationId": successor_plan_activation_id,
             "rows": list(rows),
@@ -1638,6 +1944,15 @@ class Seasons:
         contract_ids: Sequence[str] | None = None,
         idempotency_key: str | None = None,
     ) -> Any:
+        """Offer each eligible prior Contract its renewal.
+
+        For 100 contracts or fewer this answers 201 ``{"offers": [...]}``. Above 100
+        it answers 202 ``{"job": ..., "batchId": ...}``: a ``renewal_run`` job makes
+        the offers. Follow it with :meth:`retrieve_season_bulk_job`, then page the
+        offers with :meth:`list_season_renewal_offers`. Retried safely with one
+        Idempotency-Key, which answers the same job. Can refuse with
+        ``409 job_mismatch`` or ``503 season_not_configured``.
+        """
         body: dict[str, Any] = {"deadlineAt": deadline_at}
         if successor_plan_activation_id is not None:
             body["successorPlanActivationId"] = successor_plan_activation_id
@@ -1649,8 +1964,19 @@ class Seasons:
             idempotency_key=idempotency_key,
         )
 
-    def list_season_renewal_offers(self, season_key: str) -> Any:
-        return self._http.get(self._path(season_key, "/renewal-offers"))
+    def list_season_renewal_offers(
+        self, season_key: str, cursor: str | None = None, limit: int | None = None
+    ) -> Any:
+        """One page of renewal offers, newest first.
+
+        Pass ``cursor`` from the previous page's ``nextCursor`` (``None`` on the last
+        page). ``limit`` is 1-100 and defaults to 100. A bad cursor or limit answers
+        ``400 invalid_cursor`` or ``400 invalid_limit``.
+        """
+        return self._http.get(
+            self._path(season_key, "/renewal-offers"),
+            query={"cursor": cursor, "limit": limit},
+        )
 
     def retrieve_season_renewal_offer(self, season_key: str, offer_id: str) -> Any:
         return self._http.get(self._path(season_key, f"/renewal-offers/{quote(offer_id)}"))
@@ -1687,9 +2013,17 @@ class Seasons:
             },
         )
 
-    def decline_season_renewal_offer(self, season_key: str, offer_id: str) -> Any:
+    def decline_season_renewal_offer(
+        self, season_key: str, offer_id: str, reason: str | None = None
+    ) -> Any:
+        """Decline an offer and release its seats at once.
+
+        ``reason`` (1 to 200 characters) is kept on the offer as ``declineReason``;
+        a repeated decline keeps the first reason.
+        """
         return self._http.post(
-            self._path(season_key, f"/renewal-offers/{quote(offer_id)}/decline"), body={}
+            self._path(season_key, f"/renewal-offers/{quote(offer_id)}/decline"),
+            body=_fields((("reason", reason),)),
         )
 
     def release_season_renewal_offer(self, season_key: str, offer_id: str) -> Any:
@@ -1704,16 +2038,32 @@ class Seasons:
         self,
         season_key: str,
         event_key: str,
-        kind: Literal["reschedule", "replace", "cancel_exception"],
+        kind: Literal["reschedule", "replace", "cancel_exception", "postpone", "cancel"],
         starts_at: int | None = None,
         name: str | None = None,
         idempotency_key: str | None = None,
+        refund: Literal["none", "per_date"] | None = None,
+        reason: str | None = None,
     ) -> Any:
+        """Amend one date of a published Season.
+
+        ``postpone`` keeps the date with no new time yet; ``cancel`` takes it
+        off sale for good. With ``cancel`` only, ``refund="per_date"`` refunds
+        each order's share of the date as a job (the answer's ``refundJob``),
+        and ``reason`` is kept on the job. A whole-order refund is the order
+        refund. A ``cancel`` also voids every live ticket for the date as a
+        ``date_cancel_void`` job, which the answer does not name:
+        ``season_date_cancel_void_job_id(answer["amendment"]["amendmentId"])``.
+        Follow it with :meth:`retrieve_season_bulk_job`. A cancelled date
+        can't be moved (``reschedule``), postponed or replaced:
+        ``409 performance_cancelled``.
+        """
         body: dict[str, Any] = {"eventKey": event_key, "kind": kind}
         if starts_at is not None:
             body["startsAt"] = starts_at
         if name is not None:
             body["name"] = name
+        body.update(_fields((("refund", refund), ("reason", reason))))
         return self._http.post_with_header_replay(
             self._path(season_key, "/amendments"),
             body=body,
@@ -1758,3 +2108,992 @@ class Seasons:
 
     def export_season_support_snapshot(self, season_key: str) -> Any:
         return self._http.get(self._path(season_key, "/export"))
+
+    def create_season_holder_import_from_season(
+        self,
+        season_key: str,
+        source_season_id: str,
+        successor_plan_activation_id: str,
+        dry_run: bool | None = None,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        """Dry-run or commit renewal rights taken from a previous season's holders.
+
+        A dry run answers 200 and a commit of 100 holders or fewer answers 201,
+        both as ``{"import": ...}``. A commit of more than 100 holders answers 202
+        ``{"job": ...}``: a ``holder_import`` job brings them across. Follow it with
+        :meth:`retrieve_season_bulk_job`; its ``summary`` has the same counts when it
+        completes. Retried safely with one Idempotency-Key, which answers the same
+        job. Can refuse with ``409 job_mismatch``, ``503 job_busy`` or
+        ``503 season_not_configured``.
+        """
+        body = _fields((("dryRun", dry_run),))
+        body["sourceSeasonId"] = source_season_id
+        body["successorPlanActivationId"] = successor_plan_activation_id
+        return self._http.post_with_header_replay(
+            self._path(season_key, "/imports/from-season"),
+            body=body,
+            idempotency_key=idempotency_key,
+        )
+
+    def list_season_performances(self, season_key: str) -> Any:
+        """List the Season's performances and the packages each one is in."""
+        return self._http.get(self._path(season_key, "/performances"))
+
+    def create_season_performances(
+        self,
+        season_key: str,
+        title_pattern: str,
+        timezone: str,
+        repeat: Literal["none", "daily", "weekly", "biweekly", "dates"],
+        first_starts_at: float | None = None,
+        count: int | None = None,
+        dates: Sequence[float] | None = None,
+        venue: str | None | _Unset = _UNSET,
+        duration_minutes: int | None | _Unset = _UNSET,
+        region: EventHostingRegion | None = None,
+        attach_to_plan_keys: Sequence[str] | None = None,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        """Create performances inside a draft Season from a repeat rule.
+
+        ``first_starts_at`` and ``dates`` are epoch milliseconds. ``repeat="dates"``
+        takes the moments in ``dates``; the other rules step from ``first_starts_at``.
+        """
+        body = _fields(
+            (
+                ("firstStartsAt", first_starts_at),
+                ("count", count),
+                ("dates", None if dates is None else list(dates)),
+                ("region", region),
+                (
+                    "attachToPlanKeys",
+                    None if attach_to_plan_keys is None else list(attach_to_plan_keys),
+                ),
+            ),
+            (("venue", venue), ("durationMinutes", duration_minutes)),
+        )
+        body.update({"titlePattern": title_pattern, "timezone": timezone, "repeat": repeat})
+        return self._http.post_with_header_replay(
+            self._path(season_key, "/performances"),
+            body=body,
+            idempotency_key=idempotency_key,
+        )
+
+    def attach_season_performances(
+        self,
+        season_key: str,
+        event_keys: Sequence[str],
+        attach_to_plan_keys: Sequence[str] | None = None,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        """Attach existing Events to a draft Season and, optionally, to its packages."""
+        body: dict[str, Any] = {"eventKeys": list(event_keys)}
+        if attach_to_plan_keys is not None:
+            body["attachToPlanKeys"] = list(attach_to_plan_keys)
+        return self._http.post_with_header_replay(
+            self._path(season_key, "/performances/attach"),
+            body=body,
+            idempotency_key=idempotency_key,
+        )
+
+    def delete_season_performance(
+        self, season_key: str, event_key: str, idempotency_key: str | None = None
+    ) -> Any:
+        """Remove a performance from a draft Season and from every package."""
+        return self._http.mutation_with_header_replay(
+            "DELETE",
+            self._path(season_key, f"/performances/{quote(event_key)}"),
+            idempotency_key=idempotency_key,
+        )
+
+    def update_season_plan(
+        self,
+        season_key: str,
+        plan_key: str,
+        name: str | None = None,
+        event_keys: Sequence[str] | None = None,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        """Rename a draft package or change the performances it covers."""
+        body = _fields((
+            ("name", name),
+            ("eventKeys", None if event_keys is None else list(event_keys)),
+        ))
+        return self._http.mutation_with_header_replay(
+            "PATCH",
+            self._path(season_key, f"/plans/{quote(plan_key)}"),
+            body=body,
+            idempotency_key=idempotency_key,
+        )
+
+    def delete_season_plan(
+        self, season_key: str, plan_key: str, idempotency_key: str | None = None
+    ) -> None:
+        """Delete a draft package. The last package of a Season cannot be deleted."""
+        self._http.mutation_with_header_replay(
+            "DELETE",
+            self._path(season_key, f"/plans/{quote(plan_key)}"),
+            idempotency_key=idempotency_key,
+        )
+
+    def publish_season(self, season_key: str, idempotency_key: str | None = None) -> Any:
+        """Activate the Season and publish every draft package in one retryable call."""
+        return self._http.post_with_header_replay(
+            self._path(season_key, "/publish"), idempotency_key=idempotency_key
+        )
+
+    def create_season_checkout_test(
+        self,
+        season_key: str,
+        plan_key: str | None = None,
+        quantity: int | None = None,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        """Hold and release seats server-side to prove the Season buyer path works."""
+        body = _fields((("planKey", plan_key), ("quantity", quantity)))
+        return self._http.post_with_header_replay(
+            self._path(season_key, "/checkout-tests"),
+            body=body or None,
+            idempotency_key=idempotency_key,
+        )
+
+    def list_season_checkout_tests(self, season_key: str) -> Any:
+        """List recent Season checkout tests, newest first."""
+        return self._http.get(self._path(season_key, "/checkout-tests"))
+
+    def replace_season_package_prices(
+        self,
+        season_key: str,
+        plan_key: str,
+        prices: Sequence[dict[str, Any]],
+        currency: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        """Replace a package's price table.
+
+        Each price is ``{"categoryKey": ..., "unitPrice": ...}`` with the unit
+        price in minor units, plus an optional ``"priceTypeKey"``: ``adult``
+        (the default), ``child``, ``concession``, ``senior`` or ``student``.
+        Each category takes each type once.
+        """
+        body: dict[str, Any] = {"prices": list(prices)}
+        if currency is not None:
+            body["currency"] = currency
+        return self._http.mutation_with_header_replay(
+            "PUT",
+            self._path(season_key, f"/plans/{quote(plan_key)}/prices"),
+            body=body,
+            idempotency_key=idempotency_key,
+        )
+
+    def list_season_prices(self, season_key: str) -> Any:
+        """List every package price table of the Season.
+
+        Each price carries its ``priceTypeKey`` and ``priceTypeLabel``.
+        """
+        return self._http.get(self._path(season_key, "/prices"))
+
+    def attach_season_plan_performance(
+        self,
+        season_key: str,
+        plan_key: str,
+        event_key: str,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        """Add a performance to a published package and extend its allocations."""
+        return self._http.post_with_header_replay(
+            self._path(season_key, f"/plans/{quote(plan_key)}/performances"),
+            body={"eventKey": event_key},
+            idempotency_key=idempotency_key,
+        )
+
+    def delete_season_plan_performance(
+        self,
+        season_key: str,
+        plan_key: str,
+        event_key: str,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        """Remove a performance from a published package and release its allocations."""
+        return self._http.mutation_with_header_replay(
+            "DELETE",
+            self._path(
+                season_key, f"/plans/{quote(plan_key)}/performances/{quote(event_key)}"
+            ),
+            idempotency_key=idempotency_key,
+        )
+
+    def mark_season_performance_past(
+        self,
+        season_key: str,
+        event_key: str,
+        force: bool | None = None,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        """Mark a performance past so it stops blocking new Season sales.
+
+        A cancelled date answers ``409 performance_cancelled``.
+        """
+        return self._http.post_with_header_replay(
+            self._path(season_key, f"/performances/{quote(event_key)}/past"),
+            body=_fields((("force", force),)),
+            idempotency_key=idempotency_key,
+        )
+
+    def return_season_occurrence_inventory(
+        self,
+        season_key: str,
+        event_key: str,
+        action_id: str,
+        booking_ref: str,
+        plan_activation_id: str,
+        labels: Sequence[str],
+        source: dict[str, str],
+    ) -> Any:
+        """Return one occurrence allocation to the Event's ordinary inventory.
+
+        ``source`` is ``{"bookingActionId": ...}`` or ``{"renewalOfferId": ...}``.
+        Sent once; reuse the same ``action_id`` if you send it again.
+        """
+        return self._http.post(
+            self._path(season_key, f"/occurrences/{quote(event_key)}/returns"),
+            body={
+                "actionId": action_id,
+                "bookingRef": booking_ref,
+                "planActivationId": plan_activation_id,
+                "labels": list(labels),
+                "source": source,
+            },
+        )
+
+    def reclaim_season_occurrence_inventory(
+        self,
+        season_key: str,
+        event_key: str,
+        action_id: str,
+        return_action_id: str,
+        booking_ref: str,
+        plan_activation_id: str,
+        labels: Sequence[str],
+        source: dict[str, str],
+    ) -> Any:
+        """Take returned occurrence inventory back while it is still free.
+
+        ``source`` is ``{"bookingActionId": ...}`` or ``{"renewalOfferId": ...}``.
+        Sent once; reuse the same ``action_id`` if you send it again.
+        """
+        return self._http.post(
+            self._path(season_key, f"/occurrences/{quote(event_key)}/reclaims"),
+            body={
+                "actionId": action_id,
+                "returnActionId": return_action_id,
+                "bookingRef": booking_ref,
+                "planActivationId": plan_activation_id,
+                "labels": list(labels),
+                "source": source,
+            },
+        )
+
+    def list_season_holders(
+        self,
+        season_key: str,
+        q: str | None = None,
+        status: SeasonHolderStatus | None = None,
+        cursor: str | None = None,
+        limit: int | None = None,
+    ) -> Any:
+        """One page of season ticket holders.
+
+        ``q`` searches holder name, email, reference, order number or seat.
+        """
+        return self._http.get(
+            self._path(season_key, "/holders"),
+            query={"q": q, "status": status, "cursor": cursor, "limit": limit},
+        )
+
+    def refund_season_order(
+        self,
+        season_key: str,
+        order_id: str,
+        amount_minor: int | None = None,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        """Refund a season order through its payment provider.
+
+        Leave out ``amount_minor`` to refund what is left.
+        """
+        body = _fields((("amountMinor", amount_minor),))
+        return self._http.post_with_header_replay(
+            self._path(season_key, f"/orders/{quote(order_id)}/refund"),
+            body=body or None,
+            idempotency_key=idempotency_key,
+        )
+
+    def cancel_season_order(
+        self,
+        season_key: str,
+        order_id: str,
+        reason: OrderCancelReason,
+        note: str | None = None,
+        refund_confirmed: bool | None = None,
+        used_tickets_acknowledged: bool | None = None,
+        notify_buyer: bool | None = None,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        """Cancel a season order without moving money and release every date."""
+        return self._http.post_with_header_replay(
+            self._path(season_key, f"/orders/{quote(order_id)}/cancel"),
+            body=_order_cancel_body(
+                reason, note, refund_confirmed, used_tickets_acknowledged, notify_buyer
+            ),
+            idempotency_key=idempotency_key,
+        )
+
+    def cancel_season_order_date(
+        self,
+        season_key: str,
+        order_id: str,
+        event_key: str,
+        action_id: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        """Take back one date of a season order and put its seats back on sale."""
+        body = _fields((("actionId", action_id),))
+        return self._http.post_with_header_replay(
+            self._path(
+                season_key, f"/orders/{quote(order_id)}/dates/{quote(event_key)}/cancel"
+            ),
+            body=body or None,
+            idempotency_key=idempotency_key,
+        )
+
+    def resend_season_order_tickets(
+        self, season_key: str, order_id: str, email: str | None = None
+    ) -> Any:
+        """Email a season order's tickets again. Sent once, never retried automatically."""
+        body = _fields((("email", email),))
+        return self._http.post(
+            self._path(season_key, f"/orders/{quote(order_id)}/resend"), body=body or None
+        )
+
+    def retrieve_season_hosted_renewals(
+        self, season_key: str, cursor: str | None = None, limit: int | None = None
+    ) -> Any:
+        """Retrieve renewal links, payments and emails for one page of offers, newest first.
+
+        Pass ``cursor`` from the previous page's ``nextCursor`` (``None`` on the last
+        page). ``limit`` is 1-500 and defaults to 500. A bad cursor or limit answers
+        ``400 invalid_cursor`` or ``400 invalid_limit``.
+        """
+        return self._http.get(
+            self._path(season_key, "/renewal-hosted"),
+            query={"cursor": cursor, "limit": limit},
+        )
+
+    def rotate_season_renewal_offer_link(self, season_key: str, offer_id: str) -> Any:
+        """Make a new renewal link for one holder; the old link stops working.
+
+        The new link is shown once. Never retry this call automatically.
+        """
+        return self._http.post(
+            self._path(season_key, f"/renewal-offers/{quote(offer_id)}/link")
+        )
+
+    def update_season_renewal_offer_contact(
+        self,
+        season_key: str,
+        offer_id: str,
+        email: str | None | _Unset = _UNSET,
+        name: str | None | _Unset = _UNSET,
+    ) -> Any:
+        """Set the email and name a renewal offer is sent to. Pass ``None`` to clear one."""
+        return self._http.post(
+            self._path(season_key, f"/renewal-offers/{quote(offer_id)}/contact"),
+            body=_fields((), (("email", email), ("name", name))),
+        )
+
+    def create_season_renewal_notices(
+        self,
+        season_key: str,
+        offer_ids: Sequence[str] | None = None,
+        batch_id: str | None = None,
+    ) -> Any:
+        """Email renewal invitations now and reminders before the deadline.
+
+        Leave ``offer_ids`` out to email every open offer. At most 20,000 ids;
+        more answers ``422 too_many_offer_ids``. ``batch_id`` instead of
+        ``offer_ids``: every open offer one renewal offer batch made (its ``batchId``).
+        """
+        body = _fields(
+            (
+                ("offerIds", None if offer_ids is None else list(offer_ids)),
+                ("batchId", batch_id),
+            )
+        )
+        return self._http.post(
+            self._path(season_key, "/renewal-notices"), body=body or None
+        )
+
+    def resend_season_renewal_offer(self, season_key: str, offer_id: str) -> Any:
+        """Send one holder a new renewal invitation. Sent once, never retried automatically."""
+        return self._http.post(
+            self._path(season_key, f"/renewal-offers/{quote(offer_id)}/resend")
+        )
+
+    def retrieve_season_renewal_quote(self, season_key: str, offer_id: str) -> Any:
+        """What renewing an offer costs, and whether SeatLayer checkout can take it now.
+
+        ``problem`` is ``None`` when it can; otherwise it says why not.
+        """
+        return self._http.get(
+            self._path(season_key, f"/renewal-offers/{quote(offer_id)}/quote")
+        )
+
+    def create_season_renewal_intent(self, season_key: str, offer_id: str) -> Any:
+        """Record that the holder means to renew, for a renewal taken by phone or at the box office.
+
+        Your own checkout can then commit the offer. A repeat answers the same offer.
+        """
+        return self._http.post(
+            self._path(season_key, f"/renewal-offers/{quote(offer_id)}/intent")
+        )
+
+    def create_season_renewal_checkout(
+        self,
+        season_key: str,
+        offer_id: str,
+        return_url: str,
+        buyer_email: str | None = None,
+        buyer_name: str | None = None,
+        provider: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        """Start a SeatLayer checkout that renews an offer, with no hosted page.
+
+        Send the buyer to ``payment["url"]``; paying renews the offer. ``return_url`` must be
+        on one of the organization's allowed domains. A repeat with the same key answers
+        with the same order.
+        """
+        return self._http.post_with_header_replay(
+            self._path(season_key, f"/renewal-offers/{quote(offer_id)}/checkout"),
+            body=_renewal_checkout_body(return_url, buyer_email, buyer_name, provider),
+            idempotency_key=idempotency_key,
+        )
+
+    def retrieve_season_sales_report(self, season_key: str) -> Any:
+        """Retrieve season money, seats, holders and renewals as totals."""
+        return self._http.get(self._path(season_key, "/reports/sales"))
+
+    def retrieve_season_seats_report(self, season_key: str) -> Any:
+        """Retrieve the seats still free per package and per date."""
+        return self._http.get(self._path(season_key, "/reports/seats"))
+
+    def export_season_holders_csv(
+        self,
+        season_key: str,
+        q: str | None = None,
+        status: SeasonHolderStatus | None = None,
+    ) -> str:
+        """Download every season ticket holder as CSV. Returns the CSV text."""
+        return self._http.get_text(
+            self._path(season_key, "/reports/holders.csv"),
+            query={"q": q, "status": status},
+        )
+
+    def export_season_orders_csv(self, season_key: str) -> str:
+        """Download every season order SeatLayer took as CSV. Returns the CSV text."""
+        return self._http.get_text(self._path(season_key, "/reports/orders.csv"))
+
+    def retrieve_season_seat_counts(self, season_key: str) -> Any:
+        """Retrieve the season seats sold per package and per date."""
+        return self._http.get(self._path(season_key, "/seat-counts"))
+
+    def refund_season_performance(
+        self,
+        season_key: str,
+        event_key: str,
+        amount: Literal["per_date"],
+        reason: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        """Refund every SeatLayer order holding a cancelled date, as a job.
+
+        ``per_date`` refunds the date's share of each order (rounded down).
+        ``full`` is refused (``422 date_refund_per_date_only``): refund a whole
+        order with the order refund. Answers ``{"job": ...}``;
+        follow it with :meth:`retrieve_season_bulk_job`. Retried safely with one
+        Idempotency-Key, which replays the same job.
+        """
+        return self._http.post_with_header_replay(
+            self._path(season_key, f"/performances/{quote(event_key)}/refunds"),
+            body=_fields((("amount", amount), ("reason", reason))),
+            idempotency_key=idempotency_key,
+        )
+
+    def release_season_lapsed_offers(
+        self, season_key: str, idempotency_key: str | None = None
+    ) -> Any:
+        """Release the seats of every lapsed renewal offer, as a job.
+
+        Answers ``{"job": ...}``; follow it with :meth:`retrieve_season_bulk_job`.
+        An offer extended before its turn is skipped and keeps its seat. Retried
+        safely with one Idempotency-Key, which replays the same job.
+        """
+        return self._http.post_with_header_replay(
+            self._path(season_key, "/renewal-offers/release-lapsed"),
+            idempotency_key=idempotency_key,
+        )
+
+    def list_season_bulk_jobs(self, season_key: str) -> Any:
+        """List the Season's bulk jobs, newest first (100 at most)."""
+        return self._http.get(self._path(season_key, "/jobs"))
+
+    def retrieve_season_bulk_job(self, season_key: str, job_id: str) -> Any:
+        """Retrieve one bulk job with its counts and up to 500 failed items."""
+        return self._http.get(self._path(season_key, f"/jobs/{quote(job_id)}"))
+
+
+class Holders:
+    """Season ticket holders, their tickets, transfers, returns and renewals, and their customers.
+
+    Method names are the snake_case form of the public operation ids.
+    """
+
+    def __init__(self, http: HttpClient) -> None:
+        self._http = http
+
+    @staticmethod
+    def _path(holder_ref: str, suffix: str = "") -> str:
+        return f"/v1/holders/{quote(holder_ref)}{suffix}"
+
+    def list_customers(
+        self,
+        email: str | None = None,
+        holder_ref: str | None = None,
+        cursor: str | None = None,
+        limit: int | None = None,
+    ) -> Any:
+        """One page of customers, or the one with this email or holder reference."""
+        return self._http.get("/v1/customers", query={
+            "email": email,
+            "holderRef": holder_ref,
+            "cursor": cursor,
+            "limit": limit,
+        })
+
+    def retrieve_holder(self, holder_ref: str) -> Any:
+        """Retrieve the customer behind a holder reference."""
+        return self._http.get(self._path(holder_ref))
+
+    def update_holder(
+        self,
+        holder_ref: str,
+        email: str | None = None,
+        name: str | None | _Unset = _UNSET,
+        phone: str | None | _Unset = _UNSET,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        """Set a holder's email, name or phone. Pass ``None`` to clear name or phone."""
+        body = _fields((("email", email),), (("name", name), ("phone", phone)))
+        return self._http.mutation_with_header_replay(
+            "PATCH", self._path(holder_ref), body=body, idempotency_key=idempotency_key
+        )
+
+    def revoke_holder_sessions(self, holder_ref: str, session_id: str | None = None) -> Any:
+        """Sign a holder's customer out of the ticket site.
+
+        Pass ``session_id`` to end one session only. Sent once.
+        """
+        body = _fields((("sessionId", session_id),))
+        return self._http.post(
+            self._path(holder_ref, "/sessions/revoke"), body=body or None
+        )
+
+    def list_holder_seasons(self, holder_ref: str) -> Any:
+        """List the seasons a holder holds seats in."""
+        return self._http.get(self._path(holder_ref, "/seasons"))
+
+    def list_holder_tickets(
+        self,
+        holder_ref: str,
+        season_key: str | None = None,
+        from_: int | None = None,
+        to: int | None = None,
+        cursor: str | None = None,
+        limit: int | None = None,
+    ) -> Any:
+        """One page of a holder's tickets, date by date.
+
+        ``from_`` and ``to`` bound the date's start, in epoch milliseconds; they are
+        sent as ``from`` and ``to``.
+        """
+        return self._http.get(self._path(holder_ref, "/tickets"), query={
+            "seasonKey": season_key,
+            "from": from_,
+            "to": to,
+            "cursor": cursor,
+            "limit": limit,
+        })
+
+    def retrieve_holder_ticket(self, holder_ref: str, ticket_id: str) -> Any:
+        """Retrieve one of a holder's tickets with its QR."""
+        return self._http.get(self._path(holder_ref, f"/tickets/{quote(ticket_id)}"))
+
+    def create_holder_transfer(
+        self,
+        holder_ref: str,
+        ticket_ids: Sequence[str],
+        to_email: str,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        """Send some of a holder's season tickets to an email address.
+
+        Turning customer sends off in Settings › Ticket site doesn't stop your
+        server; cut-offs still apply.
+        """
+        return self._http.post_with_header_replay(
+            self._path(holder_ref, "/transfers"),
+            body={"ticketIds": list(ticket_ids), "toEmail": to_email},
+            idempotency_key=idempotency_key,
+        )
+
+    def list_holder_transfers(self, holder_ref: str) -> Any:
+        """List the transfers a holder sent or was sent."""
+        return self._http.get(self._path(holder_ref, "/transfers"))
+
+    def cancel_holder_transfer(self, holder_ref: str, transfer_id: str) -> Any:
+        """Cancel a transfer that has not been accepted. Sent once."""
+        return self._http.post(
+            self._path(holder_ref, f"/transfers/{quote(transfer_id)}/cancel")
+        )
+
+    def accept_holder_transfer(self, holder_ref: str, transfer_id: str) -> Any:
+        """Accept a transfer for the recipient holder. Sent once."""
+        return self._http.post(
+            self._path(holder_ref, f"/transfers/{quote(transfer_id)}/accept")
+        )
+
+    def create_holder_return(
+        self,
+        holder_ref: str,
+        ticket_ids: Sequence[str],
+        idempotency_key: str | None = None,
+    ) -> Any:
+        """Give back a holder's seat on one date, one per ticket.
+
+        ``ticket_ids`` takes 1 to 20 tickets, all of one season. Returns ``{"return": ...}``;
+        a repeat with the same key answers with the same return. Turning give-backs
+        off in Settings › Ticket site doesn't stop your server; cut-offs still apply.
+        """
+        return self._http.post_with_header_replay(
+            self._path(holder_ref, "/returns"),
+            body={"ticketIds": list(ticket_ids)},
+            idempotency_key=idempotency_key,
+        )
+
+    def create_holder_renewal_checkout(
+        self,
+        holder_ref: str,
+        offer_id: str,
+        return_url: str,
+        buyer_email: str | None = None,
+        buyer_name: str | None = None,
+        provider: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        """Start a SeatLayer checkout that renews one of a holder's offers.
+
+        The offer is the ``renewalOffer`` on ``list_holder_seasons``. Send the buyer to
+        ``payment["url"]``. A repeat with the same key answers with the same order.
+        """
+        return self._http.post_with_header_replay(
+            self._path(holder_ref, f"/renewal-offers/{quote(offer_id)}/checkout"),
+            body=_renewal_checkout_body(return_url, buyer_email, buyer_name, provider),
+            idempotency_key=idempotency_key,
+        )
+
+    def decline_holder_renewal_offer(
+        self, holder_ref: str, offer_id: str, reason: str | None = None
+    ) -> Any:
+        """Decline one of a holder's renewal offers and release its seats.
+
+        ``reason`` (1 to 200 characters) is kept on the offer as ``declineReason``.
+        Declining again answers the same offer, with the first reason.
+        """
+        body = _fields((("reason", reason),))
+        return self._http.post(
+            self._path(holder_ref, f"/renewal-offers/{quote(offer_id)}/decline"),
+            body=body or None,
+        )
+
+
+class Orders:
+    """Orders SeatLayer took, across events and seasons, and one event's orders.
+
+    Method names are the snake_case form of the public operation ids. Season
+    order refunds and cancellations live on ``seasons``.
+    """
+
+    def __init__(self, http: HttpClient) -> None:
+        self._http = http
+
+    def list_orders(
+        self,
+        event_key: str | None = None,
+        season_key: str | None = None,
+        status: OrderStatus | None = None,
+        from_: int | None = None,
+        to: int | None = None,
+        cursor: str | None = None,
+        limit: int | None = None,
+        holder_ref: str | None = None,
+    ) -> Any:
+        """One page of orders across events and seasons.
+
+        ``from_`` and ``to`` bound the creation time, in epoch milliseconds; they are
+        sent as ``from`` and ``to``. ``holder_ref`` lists one holder's orders: the
+        season order with that id and renewals offered to that reference. Each
+        order has ``holderRef`` and ``customerId``; ``buyer.email`` is ``None``
+        for a box office sale taken without one.
+        """
+        return self._http.get("/v1/orders", query={
+            "eventKey": event_key,
+            "seasonKey": season_key,
+            "holderRef": holder_ref,
+            "status": status,
+            "from": from_,
+            "to": to,
+            "cursor": cursor,
+            "limit": limit,
+        })
+
+    def retrieve_order(self, order_id: str) -> Any:
+        """Retrieve an order and its lines."""
+        return self._http.get(f"/v1/orders/{quote(order_id)}")
+
+    def list_order_tickets(self, order_id: str) -> Any:
+        """List an order's tickets with their scan links."""
+        return self._http.get(f"/v1/orders/{quote(order_id)}/tickets")
+
+    def list_event_orders(
+        self,
+        event_key: str,
+        q: str | None = None,
+        status: EventOrderStatus | None = None,
+        paid_by: str | None = None,
+        from_: int | None = None,
+        to: int | None = None,
+        cursor: str | None = None,
+        limit: int | None = None,
+    ) -> Any:
+        """One page of one event's orders.
+
+        ``q`` searches buyer name, email, order number or seat. ``from_`` and ``to``
+        bound the payment time, in epoch milliseconds; they are sent as ``from``
+        and ``to``.
+        """
+        return self._http.get(f"/v1/events/{quote(event_key)}/orders", query={
+            "q": q,
+            "status": status,
+            "paidBy": paid_by,
+            "from": from_,
+            "to": to,
+            "cursor": cursor,
+            "limit": limit,
+        })
+
+    def retrieve_event_order(self, event_key: str, order_id: str) -> Any:
+        """Retrieve one event order with its guests and tickets."""
+        return self._http.get(f"/v1/events/{quote(event_key)}/orders/{quote(order_id)}")
+
+    def export_event_orders_csv(
+        self,
+        event_key: str,
+        q: str | None = None,
+        status: EventOrderStatus | None = None,
+        paid_by: str | None = None,
+        from_: int | None = None,
+        to: int | None = None,
+    ) -> str:
+        """Download one event's orders as CSV. Returns the CSV text."""
+        return self._http.get_text(f"/v1/events/{quote(event_key)}/orders.csv", query={
+            "q": q,
+            "status": status,
+            "paidBy": paid_by,
+            "from": from_,
+            "to": to,
+        })
+
+    def refund_event_order(
+        self,
+        event_key: str,
+        order_id: str,
+        amount_minor: int | None = None,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        """Refund an event order through its payment provider.
+
+        Leave out ``amount_minor`` to refund what is left.
+        """
+        body = _fields((("amountMinor", amount_minor),))
+        return self._http.post_with_header_replay(
+            f"/v1/events/{quote(event_key)}/orders/{quote(order_id)}/refund",
+            body=body or None,
+            idempotency_key=idempotency_key,
+        )
+
+    def cancel_event_order(
+        self,
+        event_key: str,
+        order_id: str,
+        reason: OrderCancelReason,
+        note: str | None = None,
+        refund_confirmed: bool | None = None,
+        used_tickets_acknowledged: bool | None = None,
+        notify_buyer: bool | None = None,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        """Cancel an event order without moving money."""
+        return self._http.post_with_header_replay(
+            f"/v1/events/{quote(event_key)}/orders/{quote(order_id)}/cancel",
+            body=_order_cancel_body(
+                reason, note, refund_confirmed, used_tickets_acknowledged, notify_buyer
+            ),
+            idempotency_key=idempotency_key,
+        )
+
+    def resend_event_order_tickets(
+        self, event_key: str, order_id: str, email: str | None = None
+    ) -> Any:
+        """Email an event order's tickets again. Sent once, never retried automatically."""
+        body = _fields((("email", email),))
+        return self._http.post(
+            f"/v1/events/{quote(event_key)}/orders/{quote(order_id)}/resend",
+            body=body or None,
+        )
+
+
+class EventSeries:
+    """Runs of dated events made from one schedule and one floor plan.
+
+    Method names are the snake_case form of the public operation ids. A series
+    is addressed by an event key, as in the API path.
+    """
+
+    def __init__(self, http: HttpClient) -> None:
+        self._http = http
+
+    @staticmethod
+    def _path(event_key: str, suffix: str = "") -> str:
+        return f"/v1/event-series/{quote(event_key)}{suffix}"
+
+    def create_event_series(
+        self,
+        name: str | None = None,
+        chart_key: str | None = None,
+        schedule: dict[str, Any] | None = None,
+        timezone: str | None = None,
+        venue: str | None = None,
+        duration_minutes: int | None = None,
+        dry_run: bool | None = None,
+        idempotency_key: str | None = None,
+        from_event_key: str | None = None,
+    ) -> Any:
+        """Plan an event series from a schedule, or make it as a job.
+
+        ``schedule`` takes ``rule`` (``"none"``, ``"daily"``, ``"weekly"``,
+        ``"biweekly"`` or ``"dates"``) and ``times`` (``"HH:MM"``), plus ``from``,
+        ``until`` or ``count``, ``skip`` and ``dates`` as the rule needs.
+        ``dry_run=True`` answers the dates and creates nothing. Every date
+        carries ``name`` as its name.
+
+        Give ``name`` and ``chart_key``, or ``from_event_key``: an event you
+        already set up becomes the first date under its own key, and every other
+        date is a copy of it (floor plan, prices, checkout, poster and its own
+        seat blocks, none of its orders, holds or sales). The series then takes
+        the event's name, zone and floor plan; ``chart_key``, ``venue`` and
+        ``duration_minutes`` are refused with it.
+
+        Retried safely with one Idempotency-Key. A series from an event that never
+        started and was given up answers ``409 create_abandoned`` for that key every
+        time (:class:`SeatLayerConflictError`, not retried): send the request again
+        with a new key.
+        """
+        if schedule is None:
+            raise ValueError("schedule is required")
+        if from_event_key is None and (name is None or chart_key is None):
+            raise ValueError("give name and chart_key, or from_event_key")
+        body = _fields((
+            ("fromEventKey", from_event_key),
+            ("name", name),
+            ("chartKey", chart_key),
+            ("timezone", timezone),
+            ("venue", venue),
+            ("durationMinutes", duration_minutes),
+            ("dryRun", dry_run),
+        ))
+        body["schedule"] = schedule
+        return self._http.post_with_header_replay(
+            "/v1/event-series", body=body, idempotency_key=idempotency_key
+        )
+
+    def list_event_series(self, limit: int | None = None, cursor: str | None = None) -> Any:
+        """One page of event series."""
+        return self._http.get("/v1/event-series", query={"limit": limit, "cursor": cursor})
+
+    def retrieve_event_series(self, event_key: str) -> Any:
+        """Retrieve an event series, its dates and its job."""
+        return self._http.get(self._path(event_key))
+
+    def add_event_series_dates(
+        self,
+        event_key: str,
+        schedule: dict[str, Any] | None = None,
+        dates: Sequence[str] | None = None,
+        idempotency_key: str | None = None,
+        retry_failed: bool = False,
+    ) -> Any:
+        """Add dates to an event series, copied from its first date.
+
+        Give exactly one of ``schedule`` (as for ``create_event_series``),
+        ``dates`` (exact moments as ``"YYYY-MM-DDTHH:MM"`` in the series' zone),
+        or ``retry_failed=True`` to make again every date that failed to be made
+        (up to 100, as in ``job.failedDates``; ``422 nothing_to_retry`` when
+        none did, ``409 series_busy`` while another change runs).
+        """
+        # The API takes one shape; failing here names the mistake instead of a
+        # 400 after the round trip.
+        if (schedule is not None) + (dates is not None) + bool(retry_failed) != 1:
+            raise ValueError("give exactly one of schedule, dates or retry_failed")
+        body: dict[str, Any] = (
+            {"schedule": schedule} if schedule is not None
+            else {"dates": list(dates)} if dates is not None
+            else {"retryFailed": True}
+        )
+        return self._http.post_with_header_replay(
+            self._path(event_key, "/dates"), body=body, idempotency_key=idempotency_key
+        )
+
+    def update_event_series(
+        self,
+        event_key: str,
+        name: str | None = None,
+        prices: dict[str, Any] | None = None,
+        sales: Literal["on", "off"] | None = None,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        """Change the name, prices or sales of every upcoming date in a series.
+
+        ``prices={"categories": [...]}`` takes only the categories whose price
+        changes (for a tiered category, only the tiers sent); every price left
+        out keeps each date's own value. ``sales="on"`` or ``"off"`` opens or
+        pauses sales on every upcoming date, each with its own go-live checks.
+        ``"on"`` never opens a date its season cancelled: that date is a failed
+        item of the job (``season_date_cancelled``), counted in ``job["failed"]``
+        but not in ``failedDates``, which are the dates that could not be made.
+        """
+        body = _fields((("name", name), ("prices", prices), ("sales", sales)))
+        return self._http.mutation_with_header_replay(
+            "PATCH", self._path(event_key), body=body, idempotency_key=idempotency_key
+        )

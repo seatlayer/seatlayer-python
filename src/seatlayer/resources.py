@@ -7,7 +7,7 @@ call is named the same thing in every SeatLayer server SDK.
 from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Sequence
-from typing import Any, Literal, cast
+from typing import Any, Literal, cast, get_args
 
 from .http import HttpClient, quote
 from .types import (
@@ -22,6 +22,8 @@ from .types import (
     HoldInspection,
     ManageCapability,
     ManageSession,
+    SeasonBlockReleaseScope,
+    SeasonSeatSelection,
     TemplateInstantiateRequest,
     TicketReleaseList,
     TicketReleaseReplaceInput,
@@ -1303,26 +1305,9 @@ class Sessions:
 
 
 class Webhooks:
-    _EVENT_NAMES = frozenset({
-        "seat.booked",
-        "seat.released",
-        "seat.blocked",
-        "hold.expired",
-        "hold.created",
-        "hold.extended",
-        "event.created",
-        "event.soldout",
-        "series.created",
-        "series.dates_added",
-        "order.paid",
-        "order.refunded",
-        "order.cancelled",
-        "customer.created",
-        "customer.email_changed",
-        "season.ticket.transfer_sent",
-        "season.ticket.transferred",
-        "season.ticket.transfer_cancelled",
-    })
+    # Every name the API delivers (`WebhookEventName`), so a new name is added in one place.
+    # 0.9.0 listed 18 by hand and refused every season name but the 3 transfer ones.
+    _EVENT_NAMES = frozenset(get_args(WebhookEventName))
 
     def __init__(self, http: HttpClient) -> None:
         self._http = http
@@ -1596,6 +1581,22 @@ def season_holder_import_rows_per_call(dates: int) -> int:
     return max(1, min(100, 2300 // (max(1, dates) + 3)))
 
 
+def is_season_date_leave_pending(value: object) -> bool:
+    """True for the ``202`` a season-seats season's date cancel or past date answers while it finishes.
+
+    :meth:`Seasons.create_season_amendment` (``cancel``) and
+    :meth:`Seasons.mark_season_performance_past` answer it (a
+    :class:`~seatlayer.types.SeasonDateLeavePending`) while the date is still leaving
+    every season seat. It finishes by itself: send the same request again after
+    ``Retry-After`` to read how it ended.
+    """
+    return (
+        isinstance(value, dict)
+        and value.get("state") == "finishing"
+        and value.get("code") == "block_date_leave_pending"
+    )
+
+
 class Seasons:
     """Fixed Renewable Season organizer operations for trusted backends.
 
@@ -1656,11 +1657,18 @@ class Seasons:
         edition: str | None | _Unset = _UNSET,
         idempotency_key: str | None = None,
         single_tickets: bool | None = None,
+        inventory_mode: Literal["block", "per_hold"] | None = None,
     ) -> Any:
         """Create a draft Season.
 
         ``single_tickets=True`` makes each date also sell its own single tickets
         once the Season is on sale; the default is Season only.
+        ``inventory_mode="block"`` turns season seats on for this Season; the
+        default is ``per_hold``. Anything else answers ``422 invalid_inventory_mode``.
+        Every Season answer carries ``inventoryMode``: how the season's seats are
+        decided, ``block`` once season seats are turned on for it
+        (``inventoryMode: "block"`` on create or update) or it sells from its block,
+        else ``per_hold``.
         """
         body = self._selection(event_keys, source_performance_group_keys)
         body["name"] = name
@@ -1668,6 +1676,8 @@ class Seasons:
             body["edition"] = edition
         if single_tickets is not None:
             body["singleTickets"] = single_tickets
+        if inventory_mode is not None:
+            body["inventoryMode"] = inventory_mode
         return self._http.post_with_header_replay(
             "/v1/seasons", body=body, idempotency_key=idempotency_key
         )
@@ -1687,6 +1697,7 @@ class Seasons:
         return_cutoff_hours: int | None | _Unset = _UNSET,
         audience: Literal["embed_only", "public"] | None = None,
         single_tickets: bool | None = None,
+        inventory_mode: Literal["block", "per_hold"] | None = None,
     ) -> Any:
         """Rename a draft, or set how the Season sells.
 
@@ -1704,6 +1715,12 @@ class Seasons:
         start. The change still stands, and sending ``single_tickets=True`` again opens
         any date still not open. An exact retry with the same ``expected_revision`` and
         ``idempotency_key`` is not applied twice.
+        ``inventory_mode="block"`` turns season seats on for this Season;
+        ``"per_hold"`` turns them off again, refused with ``409 season_block_exists``
+        once seats are set aside. It does not change the Season's ``revision``. Refused
+        with ``409 season_block_packages`` (more than one package),
+        ``409 season_block_on_sale`` (sales already opened without season seats),
+        ``409 season_not_draft_or_active``, or ``422 invalid_inventory_mode``.
         """
         body: dict[str, Any] = {"expectedRevision": expected_revision}
         if name is not None:
@@ -1715,6 +1732,7 @@ class Seasons:
                 ("checkoutMode", checkout_mode),
                 ("audience", audience),
                 ("singleTickets", single_tickets),
+                ("inventoryMode", inventory_mode),
             ),
             (
                 ("transferCutoffHours", transfer_cutoff_hours),
@@ -1795,7 +1813,9 @@ class Seasons:
         ``warnings`` says what is advised but not required, such as
         ``checkout_test_missing`` until a checkout test or rehearsal has passed.
         Refused with ``409 plan_not_published`` or ``409 checkout_mode_not_chosen``
-        until a package is published and a checkout mode is chosen.
+        until a package is published and a checkout mode is chosen, and with
+        ``409 block_not_ready`` when season seats are turned on
+        (``inventory_mode="block"``) but the seats are not set aside yet.
         """
         return self._sales(season_key, "open", expected_revision)
 
@@ -2057,6 +2077,12 @@ class Seasons:
         Follow it with :meth:`retrieve_season_bulk_job`. A cancelled date
         can't be moved (``reschedule``), postponed or replaced:
         ``409 performance_cancelled``.
+
+        On a season-seats season, a ``cancel`` first takes the date off every
+        season seat: while that finishes the answer is a ``202``
+        :class:`~seatlayer.types.SeasonDateLeavePending` (check with
+        :func:`~seatlayer.is_season_date_leave_pending`); send the same request
+        again to read the amendment.
         """
         body: dict[str, Any] = {"eventKey": event_key, "kind": kind}
         if starts_at is not None:
@@ -2333,7 +2359,11 @@ class Seasons:
     ) -> Any:
         """Mark a performance past so it stops blocking new Season sales.
 
-        A cancelled date answers ``409 performance_cancelled``.
+        A cancelled date answers ``409 performance_cancelled``. On a
+        season-seats season the date first leaves every season seat: while
+        that finishes the answer is a ``202``
+        :class:`~seatlayer.types.SeasonDateLeavePending` (check with
+        :func:`~seatlayer.is_season_date_leave_pending`).
         """
         return self._http.post_with_header_replay(
             self._path(season_key, f"/performances/{quote(event_key)}/past"),
@@ -2652,6 +2682,75 @@ class Seasons:
     def retrieve_season_bulk_job(self, season_key: str, job_id: str) -> Any:
         """Retrieve one bulk job with its counts and up to 500 failed items."""
         return self._http.get(self._path(season_key, f"/jobs/{quote(job_id)}"))
+
+    def set_aside_season_block(
+        self,
+        season_key: str,
+        expected_revision: int,
+        keep_for_single_tickets: SeasonSeatSelection | None = None,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        """Set the season's seats aside on every date: every seat its packages price, minus ``keep_for_single_tickets``.
+
+        Answers ``202`` ``{"job": ..., "block": ...}``: a ``season_block_set_aside``
+        job to follow with :meth:`retrieve_season_bulk_job`. On an active season
+        block mode turns on by itself once every date has the seats
+        (``season.block.ready``); on a draft, Publish turns it on. Season seats
+        must be on for the season (``409 season_block_not_enabled`` otherwise).
+        Retried safely with one Idempotency-Key, which replays the same answer.
+        """
+        return self._http.post_with_header_replay(
+            self._path(season_key, "/block"),
+            body=_fields(
+                (
+                    ("expectedRevision", expected_revision),
+                    ("keepForSingleTickets", keep_for_single_tickets),
+                )
+            ),
+            idempotency_key=idempotency_key,
+        )
+
+    def retrieve_season_block(self, season_key: str) -> Any:
+        """The season's seats set aside on every date: ``{"block": ...}``.
+
+        ``block.mode`` is ``block`` once its seats are set aside and on, else
+        ``per_hold``; ``block.state`` is ``none``, ``setting_aside``, ``ready``
+        or ``failed``. Each date says whether it is ``up_to_date``.
+        """
+        return self._http.get(self._path(season_key, "/block"))
+
+    def release_season_block(
+        self,
+        season_key: str,
+        expected_revision: int,
+        scope: SeasonBlockReleaseScope,
+        event_keys: Sequence[str] | None = None,
+        at: str | None = None,
+        reason: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        """Release season seats to single sale: every unsold seat, or the sections, categories or seats in ``scope``.
+
+        ``event_keys`` limits it to those dates (left out: every date still to
+        come); ``at`` (an ISO time) releases then instead of now. Answers ``202``
+        ``{"job": ..., "block": ...}``: a ``season_block_release`` job to follow
+        with :meth:`retrieve_season_bulk_job`. ``season.block.released`` is sent
+        once it has run on every date. Retried safely with one Idempotency-Key,
+        which replays the same release.
+        """
+        return self._http.post_with_header_replay(
+            self._path(season_key, "/block/release"),
+            body=_fields(
+                (
+                    ("expectedRevision", expected_revision),
+                    ("scope", scope),
+                    ("eventKeys", None if event_keys is None else list(event_keys)),
+                    ("at", at),
+                    ("reason", reason),
+                )
+            ),
+            idempotency_key=idempotency_key,
+        )
 
 
 class Holders:

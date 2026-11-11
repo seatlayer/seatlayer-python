@@ -13,7 +13,11 @@ from .errors import (
     SeatLayerRateLimitError,
     SeatLayerValidationError,
 )
-from .resources import season_date_cancel_void_job_id, season_holder_import_rows_per_call
+from .resources import (
+    is_season_date_leave_pending,
+    season_date_cancel_void_job_id,
+    season_holder_import_rows_per_call,
+)
 from .types import (
     AccessLink,
     AccessLinkList,
@@ -35,6 +39,9 @@ from .types import (
     InventoryItem,
     ManageCapability,
     ManageSession,
+    SeasonBlockReleaseScope,
+    SeasonDateLeavePending,
+    SeasonSeatSelection,
     TemplateInstantiateRequest,
     TicketRelease,
     TicketReleaseAction,
@@ -73,6 +80,9 @@ __all__ = [
     "InventoryItem",
     "ManageCapability",
     "ManageSession",
+    "SeasonBlockReleaseScope",
+    "SeasonDateLeavePending",
+    "SeasonSeatSelection",
     "SeatLayer",
     "SeatLayerAuthError",
     "SeatLayerConflictError",
@@ -95,6 +105,7 @@ __all__ = [
     "WebhookSubscription",
     "WebhookVerificationError",
     "__version__",
+    "is_season_date_leave_pending",
     "season_date_cancel_void_job_id",
     "season_holder_import_rows_per_call",
     "verify_webhook",

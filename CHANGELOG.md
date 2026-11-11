@@ -1,5 +1,31 @@
 # Changelog
 
+## Next: 0.9.0, season seats (joins the season 2a section under ## 0.9.0 in the version PR; publish only once the phase 4 API is live on production)
+
+- Season seats: `set_aside_season_block` (`POST /v1/seasons/:key/block`), `retrieve_season_block`
+  and `release_season_block` (`POST /v1/seasons/:key/block/release`). Each write answers
+  `{"job": ..., "block": ...}`; follow the job with `retrieve_season_bulk_job` (kinds
+  `season_block_set_aside` and `season_block_release`, read by id, not listed). Both writes are
+  retried safely with one Idempotency-Key, generated when none is given. Types:
+  `SeasonSeatSelection`, `SeasonBlockReleaseScope`.
+- `inventory_mode` on season create and update (opt a season into season seats), read back on
+  every season (`inventoryMode`).
+- Webhook names `season.block.ready` and `season.block.released`.
+- `webhooks.create` and `webhooks.update` accept every name in `WebhookEventName`. 0.8.0 refused
+  every season name with `ValueError`.
+- A season-seats season's date cancel (`create_season_amendment`) or past date
+  (`mark_season_performance_past`) can answer `202` while the date leaves every season seat:
+  `SeasonDateLeavePending`, recognised by `is_season_date_leave_pending`.
+- New refusals come through `SeatLayerError` and its subclasses with `code`:
+  `season_block_not_enabled`, `block_exists`, `block_not_ready`, `season_not_draft_or_active`,
+  `block_selection_empty`, `seat_not_in_block`, `season_block_set_aside`, `season_inventory_locked`,
+  `date_leave_in_progress`.
+  `inventory_mode` can also answer `season_block_packages` (more than one package),
+  `season_block_on_sale`, `season_block_exists` and `invalid_inventory_mode`. The set-aside can
+  also answer `season_block_packages`, `season_block_one_package`, `plan_not_published`,
+  `season_block_undoing`, `chart_unavailable` and `dates_missing`, and the release
+  `release_mismatch`. On `503 season_busy` or `season_not_configured`, send the same request again.
+
 ## Unreleased
 
 - A date its season cancelled never opens again: `transition_event_sales` to `testable` or

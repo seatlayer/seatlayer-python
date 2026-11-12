@@ -377,6 +377,8 @@ Verify every delivery against the **raw** body. Re-serialising it changes the by
 verification will fail.
 
 ```python
+import os
+
 from flask import request
 from seatlayer import verify_webhook, WebhookVerificationError
 

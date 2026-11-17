@@ -184,8 +184,9 @@ seatlayer.seasons.release_season_block(
   `season.block.released` is sent once a release has run.
 - In block mode, a date cancel (`create_season_amendment`, kind `"cancel"`) or
   `mark_season_performance_past` first takes the date off every season seat. Until that finishes
-  the answer is a `202`: check it with `seatlayer.is_season_date_leave_pending(answer)`, then send
-  the same request again after `Retry-After`.
+  the answer is a `202`: check it with `is_season_date_leave_pending(answer)`
+  (`from seatlayer import is_season_date_leave_pending`), then send the same request again after
+  `Retry-After`.
 - Refusals come through `SeatLayerError` with `code`, and nothing changes. For example
   `409 season_block_packages` (more than one package), `409 season_block_on_sale` (sales have
   opened), or `409 block_not_ready` from `open_season_sales` before block mode is on.

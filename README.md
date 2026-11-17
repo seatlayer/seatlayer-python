@@ -21,13 +21,13 @@ and webhooks through one typed ticketing API client.
 > **Server-side only.** This package authenticates with your secret key. Never run it anywhere a
 > ticket buyer can reach. Browser surfaces get short-lived, origin-bound tokens that you mint here.
 
-Two-step shape: the buyer picks and holds seats in the client with your public key, then this SDK confirms the booking from your server with your secret key while your platform keeps checkout and its own payment provider.
+**How it works:** the buyer picks and holds seats in your website or app with your public key. Your server then reads the hold, takes the payment through your own provider, and books the seats with this SDK and your secret key.
 
-**Start here:** [Quickstart](https://docs.seatlayer.io/start/quickstart/) · [Holds and checkout](https://docs.seatlayer.io/buyer-sdk/holds-and-checkout/) · [Python server SDK guide](https://docs.seatlayer.io/server-sdk/python/) · [SDK catalog](https://docs.seatlayer.io/sdk-catalog.json) · [Pricing](https://seatlayer.io/pricing/): $0 entry, 100 free confirmed-sold-seat credits per organization each month, then $0.10 down to $0.05 a credit, and credits never expire.
+**Start here:** [Quickstart](https://docs.seatlayer.io/start/quickstart/) · [Holds and checkout](https://docs.seatlayer.io/buyer-sdk/holds-and-checkout/) · [Python server SDK guide](https://docs.seatlayer.io/server-sdk/python/) · [SDK catalog](https://docs.seatlayer.io/sdk-catalog.json) · [Pricing](https://seatlayer.io/pricing/): 100 sold seats free every month, then 10¢ down to 5¢ per sold seat. No subscription, and purchased credits never expire. Test mode is free.
 
 ## Scale evidence
 
-Benchmarked on public 100,000-, 150,000- and 200,000-seat venue fixtures on 15 September 2026: 200,000 seats chart-ready in 1.95 s, desktop, local production build. Fixtures, method and run logs: https://github.com/seatlayer/seatlayer-performance. Live 200,000-seat stadium demo: https://app.seatlayer.io/demo/play/century-stadium-200k. This is renderer evidence, not a concurrent-buyer claim.
+Benchmarked on public 100,000-, 150,000- and 200,000-seat venue fixtures on 15 September 2026: 200,000 seats chart-ready in 1.95 s, desktop, local production build. Tested at 10,000 simulated concurrent buyers on one 12,000-seat event (18 September 2026): engine-side hold latency p99 9 ms, zero server errors. Method, fixtures and run files: https://github.com/seatlayer/seatlayer-performance. Live 200,000-seat stadium demo: https://app.seatlayer.io/demo/play/century-stadium-200k.
 
 ## Install the Python seat booking SDK
 
@@ -88,18 +88,19 @@ live ones; crossing them returns `403 mode_mismatch`, surfaced as `SeatLayerAuth
 
 ## Fixed Renewable Seasons
 
-`seatlayer.seasons` exposes all 87 trusted organizer operations: catalogue and packages,
-performances, package prices (per price type: `adult`, `child`, `concession`, `senior`,
-`student`), sales, checkout tests, buyer access and booking, holder imports, holders, season
-orders, renewals, hosted renewals and renewal checkouts, occurrences (postpone and cancel a date), bulk refunds of a
-cancelled date, the release of lapsed renewal offers and their jobs, reports, CSV exports, audit, outbox, and support export.
+`seatlayer.seasons` has all 90 season operations: seasons and their packages, dates and
+package prices (per price type: `adult`, `child`, `concession`, `senior`, `student`), sales
+windows, checkout tests, buyer sessions and booking, holder imports and the holder list,
+season orders, renewals (offers, quotes, intents, checkouts and hosted renewal links), date
+changes and cancellations, season seats, bulk refunds with their jobs, sales and seat reports,
+CSV exports, audit and support export.
 
-After the test hold/book/cancel journey and matching webhook deliveries,
-`validate_season_buyer_rehearsal(season_key)` sends no evidence body; SeatLayer
-discovers the retained chain automatically. Retrieved Season holds contain
-inventory identity, not an authoritative amount. When you run your own checkout,
-your platform owns package price, payment, order, tax, refunds, benefits, and
-ticket or pass delivery.
+Before you open sales, run one test hold, booking and cancellation with their
+webhooks, then call `validate_season_buyer_rehearsal(season_key)`. It finds those
+test records itself, so it takes no body. With your own checkout, until a test like this or a checkout test has passed, opening sales answers with a `checkout_test_missing` warning. A
+season hold lists each date's seat, category and quantity but no price: when you
+run your own checkout, you set the package price and take the payment, and you
+issue the tickets.
 
 ```python
 checked = seatlayer.seasons.validate_season(
@@ -113,10 +114,12 @@ draft = seatlayer.seasons.create_season(
 activation = seatlayer.seasons.activate_season(draft["key"], draft["revision"])
 ```
 
-Treat `202` as accepted work: retain the returned `lifecycleOperation.operationId`
-and poll `retrieve_season_lifecycle`. Buyer sessions are show-once and never
-retried invisibly. Booking, cancellation, and renewal actions require caller-stable
-identities. Only header-replay mutations retry automatically.
+A `202` answer means the work was accepted and is still running: keep the returned
+operation id (`lifecycleOperation.operationId`) and poll
+`retrieve_season_lifecycle` until it finishes. Bookings, cancellations and renewal
+commits are sent once and never retried by the SDK, so give each one your own
+stable id; sending the same id again is safe. A buyer session is sent once too, and repeating it is not safe: if its answer is lost, revoke what was created and
+create one new session.
 
 ```python
 seatlayer = SeatLayer(os.environ["SEATLAYER_SECRET_KEY"])
@@ -179,8 +182,9 @@ seatlayer.seasons.release_season_block(
   `season.block.released` is sent once a release has run.
 - In block mode, a date cancel (`create_season_amendment`, kind `"cancel"`) or
   `mark_season_performance_past` first takes the date off every season seat. Until that finishes
-  the answer is a `202`: check it with `seatlayer.is_season_date_leave_pending(answer)`, then send
-  the same request again after `Retry-After`.
+  the answer is a `202`: check it with `is_season_date_leave_pending(answer)`
+  (`from seatlayer import is_season_date_leave_pending`), then send the same request again after
+  `Retry-After`.
 - Refusals come through `SeatLayerError` with `code`, and nothing changes. For example
   `409 season_block_packages` (more than one package), `409 season_block_on_sale` (sales have
   opened), or `409 block_not_ready` from `open_season_sales` before block mode is on.
@@ -332,16 +336,16 @@ The full set, all opt-in:
 |---|---|
 | `event:view` | Read the seat map and its live states |
 | `event:block` | Block and unblock seats |
-| `event:cancel` | Cancel a Platform/SDK booking by reference and return its inventory to sale; does not move gateway money |
+| `event:cancel` | Cancel a booking by its reference and put the seats back on sale; refunds nobody |
 | `event:reports` | Read sales and availability reports |
 | `event:channels:view` | Read sales channels and their allocations |
 | `event:channels:manage` | Create, pause and archive channels; rotate access links |
-| `event:orders:read` | Read SeatLayer-managed orders |
-| `event:refund` | Refund an eligible Managed Ticketing order through its connected gateway |
-| `event:tickets:send` | Send SeatLayer-managed tickets |
+| `event:orders:read` | Read the orders SeatLayer's checkout took |
+| `event:refund` | Refund an order SeatLayer's checkout took, through its payment gateway |
+| `event:tickets:send` | Send the tickets of an order SeatLayer's checkout took |
 | `event:door:view` | Read the door list |
 | `event:door:checkin` | Check tickets in and out |
-| `event:boxoffice` | Use the managed box-office surface |
+| `event:boxoffice` | Use SeatLayer's box office screen |
 
 The two `event:channels:*` capabilities are **not** in the default (a token minted before sales
 channels existed must not silently acquire channel authority), so ask for them explicitly if the
@@ -367,11 +371,8 @@ For safe-mode embeds, pass `mode="safe"` with `safe_mode_options`; feature polic
 
 Subscription responses use the API envelopes exactly: `list()` returns `{"subs": [...]}`,
 `create()` returns `{"sub": ..., "secret": ...}` (the secret is shown once), and `update()`
-returns `{"sub": ...}`. Supported event names are `seat.booked`, `seat.released`, `seat.blocked`,
-`hold.expired`, `hold.created`, `hold.extended`, `event.created`, `event.soldout`,
-`series.created`, `series.dates_added`, `order.paid`, `order.refunded`, `order.cancelled`,
-`customer.created`, `customer.email_changed`, `season.ticket.transfer_sent`,
-`season.ticket.transferred`, and `season.ticket.transfer_cancelled`.
+returns `{"sub": ...}`. `WebhookEventName` lists every event name this version accepts, including
+`season.block.ready` and `season.block.released`.
 
 Verify every delivery against the **raw** body. Re-serialising it changes the bytes and
 verification will fail.
@@ -445,10 +446,10 @@ mutations opt into exact header replay: `charts.create`, `charts.copy`,
 reuses it for every attempt. All remaining SDK mutations are sent once; some have a server-side domain idempotency
 contract, but the SDK does not retry them automatically.
 
-**Booking safety.** Direct and box-office bookings have the server's exact-selection plus
-`booking_ref` safeguard, but the SDK still sends them once. Holds, best-available operations,
-show-once secret creation and raw mutations are also single-attempt; reconcile an unknown outcome
-before trying again.
+**Booking safety.** Sending the same direct or box-office booking again with the same
+`booking_ref` never sells a seat twice, but the SDK still sends each booking once. Holds,
+best-available operations, show-once secret creation and raw mutations are also single-attempt;
+reconcile an unknown outcome before trying again.
 
 ```python
 SeatLayer(
@@ -484,7 +485,7 @@ holder, order, renewal, occurrence, reporting, export, outbox, and support opera
 | `webhooks` | `list` `create` `update` `delete` `list_deliveries` |
 | `workspaces` | `list` `create` `retrieve` `update` |
 | `performance_groups` | `list` `create` `retrieve` `delete` `activate` `close` `retrieve_lifecycle` `create_buyer_access_session` `list_buyer_access_sessions` `revoke_buyer_access_session` `retrieve_hold` `book_hold` `retrieve_booking` |
-| `seasons` | 87 operations for catalogue and Plan lifecycle, performances, package prices, sales windows, checkout tests, buyer access and booking, holder imports, holders, season orders, renewals, hosted renewals and renewal checkouts, occurrence amendments, returns and reclaims, bulk refunds, lapsed offer release and jobs, reports, CSV exports, audit, outbox, and support export |
+| `seasons` | 90 operations for catalogue and Plan lifecycle, performances, package prices, sales windows, checkout tests, buyer access and booking, holder imports, holders, season orders, renewals, hosted renewals and renewal checkouts, occurrence amendments, returns and reclaims, bulk refunds, lapsed offer release and jobs, reports, CSV exports, audit, outbox, and support export |
 | `holders` | `list_customers` `retrieve_holder` `update_holder` `revoke_holder_sessions` `list_holder_seasons` `list_holder_tickets` `retrieve_holder_ticket` `create_holder_transfer` `list_holder_transfers` `cancel_holder_transfer` `accept_holder_transfer` `create_holder_return` `create_holder_renewal_checkout` `decline_holder_renewal_offer` |
 | `orders` | `list_orders` `retrieve_order` `list_order_tickets` `list_event_orders` `retrieve_event_order` `export_event_orders_csv` `refund_event_order` `cancel_event_order` `resend_event_order_tickets` |
 | `event_series` | `create_event_series` `list_event_series` `retrieve_event_series` `add_event_series_dates` `update_event_series` |
@@ -495,14 +496,14 @@ Full reference: [SeatLayer server API events](https://docs.seatlayer.io/server-a
 
 Some API surface is intentionally unwrapped, not merely pending:
 
-- **Connecting payment gateways.** Connecting one is a dashboard flow. Once a gateway is connected,
-  `events.replace_event_payment_gateway` assigns it to an event.
-- **Realtime seat updates.** Live seat state reaches the *browser* through the widget's own socket.
-  There is no server-side subscribe; a secret-key caller gets authoritative state from
-  `events.retrieve_report()` and `inventory.retrieve_availability()`.
+- **Payment gateways.** A gateway is set up in the SeatLayer dashboard, not through this SDK. Once
+  it is set up, `events.replace_event_payment_gateway` assigns it to an event.
+- **Realtime seat updates.** Live seat changes reach buyers through the seat map itself. There is
+  no server-side live feed; a server reads the current state with `events.retrieve_report()` and
+  `inventory.retrieve_availability()`.
 
-None of these are reachable through `request()` as a supported path either; they are excluded from
-the public manifest, not just from the wrapper.
+Neither of these two (setting up a gateway, a server-side live feed) is part of the public API, so
+`request()` does not support them either.
 
 ## Frequently asked questions
 
@@ -537,12 +538,11 @@ outcome before trying again.
 
 ### Can I use my own payment provider?
 
-Yes. This server SDK does not process payment in a Platform/SDK integration. Inspect the hold,
-compute the charge from each returned item's authoritative `unitPrice`, `quantity`, and `currency`,
-take the money through whichever provider you already use, and then book the hold with your order
-id as `booking_ref`. SeatLayer owns seating state, holds, booking concurrency, and the inventory
-ledger in this integration; your platform owns payments, commercial orders, tickets, delivery,
-and refunds. Managed Ticketing is a separate product path with organizer-connected payments.
+Yes. Nothing in this SDK takes a payment: your server charges the hold's total through the provider
+you already use, then books the seats with your order id as `booking_ref`, and SeatLayer never
+touches the money. If you would rather SeatLayer run the checkout for an event
+(`events.replace_event_buyer_checkout`), buyers pay through one of 14 payment gateways, including
+Stripe, PayPal and Square, straight into your own account.
 
 ## Continue your Python integration
 

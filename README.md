@@ -368,11 +368,8 @@ For safe-mode embeds, pass `mode="safe"` with `safe_mode_options`; feature polic
 
 Subscription responses use the API envelopes exactly: `list()` returns `{"subs": [...]}`,
 `create()` returns `{"sub": ..., "secret": ...}` (the secret is shown once), and `update()`
-returns `{"sub": ...}`. Supported event names are `seat.booked`, `seat.released`, `seat.blocked`,
-`hold.expired`, `hold.created`, `hold.extended`, `event.created`, `event.soldout`,
-`series.created`, `series.dates_added`, `order.paid`, `order.refunded`, `order.cancelled`,
-`customer.created`, `customer.email_changed`, `season.ticket.transfer_sent`,
-`season.ticket.transferred`, and `season.ticket.transfer_cancelled`.
+returns `{"sub": ...}`. `WebhookEventName` lists every event name this version accepts, including
+`season.block.ready` and `season.block.released`.
 
 Verify every delivery against the **raw** body. Re-serialising it changes the bytes and
 verification will fail.

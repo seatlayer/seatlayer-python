@@ -95,12 +95,13 @@ season orders, renewals (offers, quotes, intents, checkouts and hosted renewal l
 changes and cancellations, season seats, bulk refunds with their jobs, sales and seat reports,
 CSV exports, audit and support export.
 
-After the test hold/book/cancel journey and matching webhook deliveries,
-`validate_season_buyer_rehearsal(season_key)` sends no evidence body; SeatLayer
-discovers the retained chain automatically. Retrieved Season holds contain
-inventory identity, not an authoritative amount. When you run your own checkout,
-your platform owns package price, payment, order, tax, refunds, benefits, and
-ticket or pass delivery.
+Before you open sales, run one test hold, booking and cancellation with their
+webhooks, then call `validate_season_buyer_rehearsal(season_key)`. It finds those
+test records itself, so it takes no body. Until a test like this or a checkout
+test has passed, opening sales answers with a `checkout_test_missing` warning. A
+season hold lists each date's seat, category and quantity but no price: when you
+run your own checkout, you set the package price and take the payment, and you
+issue the tickets.
 
 ```python
 checked = seatlayer.seasons.validate_season(
@@ -114,10 +115,13 @@ draft = seatlayer.seasons.create_season(
 activation = seatlayer.seasons.activate_season(draft["key"], draft["revision"])
 ```
 
-Treat `202` as accepted work: retain the returned `lifecycleOperation.operationId`
-and poll `retrieve_season_lifecycle`. Buyer sessions are show-once and never
-retried invisibly. Booking, cancellation, and renewal actions require caller-stable
-identities. Only header-replay mutations retry automatically.
+A `202` answer means the work was accepted and is still running: keep the returned
+operation id (`lifecycleOperation.operationId`) and poll
+`retrieve_season_lifecycle` until it finishes. Bookings, cancellations and renewal
+commits are sent once and never retried by the SDK, so give each one your own
+stable id; sending the same id again is safe. A buyer session is sent once too,
+but it cannot be repeated: if its answer is lost, revoke what was created and
+create one new session.
 
 ```python
 seatlayer = SeatLayer(os.environ["SEATLAYER_SECRET_KEY"])

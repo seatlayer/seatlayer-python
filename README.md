@@ -337,16 +337,16 @@ The full set, all opt-in:
 |---|---|
 | `event:view` | Read the seat map and its live states |
 | `event:block` | Block and unblock seats |
-| `event:cancel` | Cancel a Platform/SDK booking by reference and return its inventory to sale; does not move gateway money |
+| `event:cancel` | Cancel a booking by its reference and put the seats back on sale; refunds nobody |
 | `event:reports` | Read sales and availability reports |
 | `event:channels:view` | Read sales channels and their allocations |
 | `event:channels:manage` | Create, pause and archive channels; rotate access links |
-| `event:orders:read` | Read SeatLayer-managed orders |
-| `event:refund` | Refund an eligible Managed Ticketing order through its connected gateway |
-| `event:tickets:send` | Send SeatLayer-managed tickets |
+| `event:orders:read` | Read the orders SeatLayer's checkout took |
+| `event:refund` | Refund an order SeatLayer's checkout took, through its payment gateway |
+| `event:tickets:send` | Send the tickets of an order SeatLayer's checkout took |
 | `event:door:view` | Read the door list |
 | `event:door:checkin` | Check tickets in and out |
-| `event:boxoffice` | Use the managed box-office surface |
+| `event:boxoffice` | Use SeatLayer's box office screen |
 
 The two `event:channels:*` capabilities are **not** in the default (a token minted before sales
 channels existed must not silently acquire channel authority), so ask for them explicitly if the

@@ -448,10 +448,10 @@ mutations opt into exact header replay: `charts.create`, `charts.copy`,
 reuses it for every attempt. All remaining SDK mutations are sent once; some have a server-side domain idempotency
 contract, but the SDK does not retry them automatically.
 
-**Booking safety.** Direct and box-office bookings have the server's exact-selection plus
-`booking_ref` safeguard, but the SDK still sends them once. Holds, best-available operations,
-show-once secret creation and raw mutations are also single-attempt; reconcile an unknown outcome
-before trying again.
+**Booking safety.** Sending the same direct or box-office booking again with the same
+`booking_ref` never sells a seat twice, but the SDK still sends each booking once. Holds,
+best-available operations, show-once secret creation and raw mutations are also single-attempt;
+reconcile an unknown outcome before trying again.
 
 ```python
 SeatLayer(
@@ -500,12 +500,12 @@ Some API surface is intentionally unwrapped, not merely pending:
 
 - **Connecting payment gateways.** Connecting one is a dashboard flow. Once a gateway is connected,
   `events.replace_event_payment_gateway` assigns it to an event.
-- **Realtime seat updates.** Live seat state reaches the *browser* through the widget's own socket.
-  There is no server-side subscribe; a secret-key caller gets authoritative state from
-  `events.retrieve_report()` and `inventory.retrieve_availability()`.
+- **Realtime seat updates.** Live seat changes reach buyers through the seat map itself. There is
+  no server-side live feed; a server reads the current state with `events.retrieve_report()` and
+  `inventory.retrieve_availability()`.
 
-None of these are reachable through `request()` as a supported path either; they are excluded from
-the public manifest, not just from the wrapper.
+Neither of these two (connecting a gateway, a server-side live feed) is part of the public API, so
+`request()` does not support them either.
 
 ## Frequently asked questions
 

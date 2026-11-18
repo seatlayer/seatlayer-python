@@ -433,7 +433,7 @@ requests.
 
 ## Reliability
 
-**Retries and idempotency.** Reads retry 408, 429 and 5xx responses with backoff. Forty-one
+**Retries and idempotency.** Reads retry 408, 429 and 5xx responses with backoff. Forty-three
 mutations opt into exact header replay: `charts.create`, `charts.copy`,
 `templates.instantiate_template`, `events.create`, `workspaces.create`,
 `performance_groups.create`; on `seasons`, `create_season`, `update_season`, `delete_season`,
@@ -444,8 +444,8 @@ mutations opt into exact header replay: `charts.create`, `charts.copy`,
 `duplicate_season_to_live`, `create_season_holder_import`,
 `create_season_holder_import_from_season`, `create_season_renewal_offers`,
 `create_season_amendment`, `refund_season_order`, `cancel_season_order`,
-`cancel_season_order_date`, `refund_season_performance`, `release_season_lapsed_offers`, and
-`create_season_renewal_checkout`;
+`cancel_season_order_date`, `refund_season_performance`, `release_season_lapsed_offers`, `create_season_renewal_checkout`, `set_aside_season_block`,
+and `release_season_block`;
 `holders.update_holder`, `holders.create_holder_transfer`, `holders.create_holder_return`, and
 `holders.create_holder_renewal_checkout`; `orders.refund_event_order` and `orders.cancel_event_order`; and
 `event_series.create_event_series`, `event_series.add_event_series_dates`, and
@@ -461,7 +461,7 @@ reconcile an unknown outcome before trying again.
 ```python
 SeatLayer(
     os.environ["SEATLAYER_SECRET_KEY"],
-    max_retries=3,   # attempts for reads and the 41 exact-header-replay mutations
+    max_retries=3,   # attempts for reads and the 43 exact-header-replay mutations
     timeout=30.0,    # seconds, per attempt
 )
 ```
@@ -538,19 +538,18 @@ free.
 Create a client with your secret key, read the buyer's hold with `inventory.retrieve_hold` to get
 the real seats and prices, take the payment, then call
 `inventory.book(event_key, hold_id=..., booking_ref=...)` with your own order id as `booking_ref`.
-For phone orders, the box office and comps, `inventory.book_best_available` picks and books the best
-seats in one call, with no browser involved. Keep that `booking_ref` for the order: it finds the
+For phone orders, the box office and comps, `inventory.book_best_available` picks and books the best available seats in one call, with no browser involved. Keep that `booking_ref` for the order: it finds the
 booking again in `inventory.list_bookings` and cancels it with `inventory.unbook`.
 
 ### How do I stop two buyers taking the same seat?
 
-In the SeatLayer picker, a buyer's seats are held when they go to checkout; with the bare chart,
-your code calls hold. The hold keeps those seats for that buyer for a set time, which you can change
-per event, and every other buyer sees them taken at once. Your server reads the hold with
+In the SeatLayer picker, a buyer's seats are held when they go to checkout; with the headless `SeatingChart`, your page calls `hold()`. The hold keeps those seats for that buyer for a set time, which you can change
+per event, and every other buyer sees them taken. Your server reads the hold with
 `inventory.retrieve_hold`, charges from the prices it returns rather than anything the browser sent,
 and books it; `inventory.extend_hold` gives a slow checkout more time without letting the seats go.
-If a booking call times out, send it again with the same hold and the same `booking_ref`: seats
-already booked under that reference are never sold twice.
+If a booking call times out, check `inventory.list_bookings` for that `booking_ref`, or repeat the exact same
+booking with the same hold and `booking_ref`: seats already booked under it are not sold again,
+though the repeat can return an empty booked list.
 
 ### Can I use my own payment provider?
 
@@ -575,8 +574,8 @@ Yes. Buyers pick seats on the SeatLayer seat map in their browser or app, and th
 package lets your Django, FastAPI or Flask backend create events on your seating charts, read what a
 buyer holds, book it and sell season tickets. The client is synchronous and uses only the standard
 library, so call it from Django views or from plain `def` routes in FastAPI. To verify a webhook,
-pass the raw body: `request.body` in Django, `await request.body()` in FastAPI, `request.get_data()`
-in Flask.
+pass the raw body: `request.body` in Django, `await request.body()` in an `async def` FastAPI
+route, `request.get_data()` in Flask.
 
 ## Continue your Python integration
 

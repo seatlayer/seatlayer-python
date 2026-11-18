@@ -407,6 +407,8 @@ def seatlayer_webhook():
     return "", 200
 ```
 
+Django: pass `request.body`. FastAPI: pass `await request.body()`.
+
 ## Errors
 
 ```python

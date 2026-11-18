@@ -91,6 +91,12 @@ Keys carry their own mode. `sk_test_…` keys can only touch test-mode events an
 live ones; crossing them returns `403 mode_mismatch`, surfaced as `SeatLayerAuthError` with
 `is_mode_mismatch`.
 
+```python
+seatlayer = SeatLayer(os.environ["SEATLAYER_SECRET_KEY"])
+if os.environ.get("ENV") == "production" and seatlayer.mode != "live":
+    raise RuntimeError("Refusing to boot production against test-mode seating data.")
+```
+
 ## Season tickets (Fixed Renewable Seasons)
 
 `seatlayer.seasons` has all 90 season operations: seasons and their packages, dates and
@@ -125,12 +131,6 @@ operation id (`lifecycleOperation.operationId`) and poll
 commits are sent once and never retried by the SDK, so give each one your own
 stable id; sending the same id again is safe. A buyer session is sent once too, and repeating it is not safe: if its answer is lost, revoke what was created and
 create one new session.
-
-```python
-seatlayer = SeatLayer(os.environ["SEATLAYER_SECRET_KEY"])
-if os.environ.get("ENV") == "production" and seatlayer.mode != "live":
-    raise RuntimeError("Refusing to boot production against test-mode seating data.")
-```
 
 When SeatLayer takes the season's payments, renew a holder with no hosted page: read the price
 with `retrieve_season_renewal_quote`, then start a checkout and send the holder to

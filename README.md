@@ -91,7 +91,7 @@ Keys carry their own mode. `sk_test_…` keys can only touch test-mode events an
 live ones; crossing them returns `403 mode_mismatch`, surfaced as `SeatLayerAuthError` with
 `is_mode_mismatch`.
 
-## Fixed Renewable Seasons
+## Season tickets (Fixed Renewable Seasons)
 
 `seatlayer.seasons` has all 90 season operations: seasons and their packages, dates and
 package prices (per price type: `adult`, `child`, `concession`, `senior`, `student`), sales

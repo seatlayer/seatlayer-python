@@ -10,6 +10,17 @@ SeatLayer's official Python SDK. Your views read what a buyer holds with the rea
 under your own order id and verify SeatLayer's signed webhooks; the package uses only the standard
 library and runs on Python 3.10 and newer.
 
+## What SeatLayer is
+
+SeatLayer is reserved-seat ticketing and seating software: organizers sell with hosted checkout,
+a box office, door check-in and season tickets, and platforms add the same seat maps, with 3D
+seat views, through the SeatLayer SDK and API. One chart drives the 2D map, the 3D venue and the
+view from each seat (3D for venues up to 60,000 seats; the 2D map benchmarked at 200,000 seats).
+
+[Website](https://seatlayer.io/) · [For developers](https://seatlayer.io/developers/) ·
+[Season tickets](https://seatlayer.io/season-tickets/) · [Pricing](https://seatlayer.io/pricing/) ·
+[Live demo](https://seatlayer.io/demo/)
+
 [`seatlayer` on PyPI](https://pypi.org/project/seatlayer/) ·
 [Python server SDK guide](https://docs.seatlayer.io/server-sdk/python/) ·
 [SeatLayer SDK and API overview](https://seatlayer.io/developers/) ·

@@ -1,16 +1,14 @@
-# SeatLayer Python Server SDK for Reserved Seating
+# SeatLayer Python SDK: seat booking, reserved seating and season ticket API
 
 [![CI](https://github.com/seatlayer/seatlayer-python/actions/workflows/ci.yml/badge.svg)](https://github.com/seatlayer/seatlayer-python/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/seatlayer.svg)](https://pypi.org/project/seatlayer/)
 [![Python](https://img.shields.io/pypi/pyversions/seatlayer.svg)](https://pypi.org/project/seatlayer/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-111827.svg)](LICENSE)
 
-The official Python client for the SeatLayer API. The `seatlayer` package lets a Python backend inspect seat holds, price orders from server data, book reserved seats and verify webhooks, with no runtime dependencies. SeatLayer is seating chart and reserved-seat ticketing software built for venues up to stadium scale.
-
-SeatLayer's official Python server SDK is the trusted side of its reserved seating and seat
-booking API. Inspect what a hold really contains, price from server-owned seating-chart data,
-and book with a stable `booking_ref`, while managing charts, events, inventory, allocations,
-and webhooks through one typed ticketing API client.
+Add reserved seating and season tickets to a Django, FastAPI or Flask backend with `seatlayer`,
+SeatLayer's official Python SDK. Your views read what a buyer holds with the real prices, book it
+under your own order id and verify SeatLayer's signed webhooks; the package uses only the standard
+library and runs on Python 3.10 and newer.
 
 [`seatlayer` on PyPI](https://pypi.org/project/seatlayer/) ·
 [Python server SDK guide](https://docs.seatlayer.io/server-sdk/python/) ·
